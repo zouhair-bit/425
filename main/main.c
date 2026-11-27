@@ -58,8 +58,8 @@
 #define BMP_ADDR_HI        0x77          // PCB v3: CSB and SDO tied to 3V3 -> 0x77
 #define BMP_ADDR_LO        0x76          // fallback address
 #define OLED_COL_OFS       2
-#define OLED_ROTATE_180    0
-#define PERFBOARD_MAC5     0x30          // unit 1 (DELTA): screen mounted 180 deg
+#define OLED_ROTATE_180    1             // both ECHO and DELTA screens mounted 180 deg
+#define PERFBOARD_MAC5     0x30          // unit 1 (DELTA)
 
 #define BTN_GPIO           GPIO_NUM_5    // active LOW push button (wake / ping / sleep)
 #define BTN_DEBOUNCE_US    25000LL       // 25 ms software debounce via esp_timer_get_time()
@@ -603,7 +603,7 @@ void app_main(void)
     uint8_t mac[6];
     esp_efuse_mac_get_default(mac);
     bool unit_delta = mac[5] == PERFBOARD_MAC5;
-    oled_rot180 = OLED_ROTATE_180 ^ unit_delta;
+    oled_rot180 = (OLED_ROTATE_180 != 0);   // both ECHO and DELTA rotated 180 deg
     const char *me = unit_delta ? "DELTA" : "ECHO";
     snprintf(peer_name, sizeof(peer_name), "%s", unit_delta ? "ECHO" : "DELTA");
     char ap_ssid[24];
@@ -647,6 +647,9 @@ void app_main(void)
     ui_data_t *S = ui_data();
     snprintf(S->me, sizeof(S->me), "%s", me);
     snprintf(S->peer, sizeof(S->peer), "%s", peer_name);
+    snprintf(S->wifi_ssid, sizeof(S->wifi_ssid), "%s", ap_ssid);
+    snprintf(S->wifi_pass, sizeof(S->wifi_pass), "%s", WIFI_PASS);
+    snprintf(S->wifi_ip, sizeof(S->wifi_ip), "192.168.4.1");
     snprintf(S->os_ver, sizeof(S->os_ver), "ESP-IDF %d.%d", ESP_IDF_VERSION_MAJOR, ESP_IDF_VERSION_MINOR);
     snprintf(S->boot_line[0], 24, "HC-12 433.4MHz CH001");
     snprintf(S->boot_line[1], 24, "SH1106 128x64 I2C");

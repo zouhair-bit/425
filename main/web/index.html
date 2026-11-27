@@ -34,8 +34,14 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-
 #conn-banner.show{display:block}
 
 /* Collapsible status drawer */
-#drawer{display:none;background:var(--panel);border-bottom:1px solid var(--border);padding:10px 14px;font-size:13px;max-height:46vh;overflow-y:auto}
+#drawer{display:none;background:var(--panel);border-bottom:1px solid var(--border);padding:10px 14px;font-size:13px;max-height:52vh;overflow-y:auto}
 #drawer.open{display:block}
+.name-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:7px 10px}
+.name-row label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);white-space:nowrap}
+#name-inp{flex:1;min-width:0;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 8px;font:13px/1.2 inherit;outline:none}
+#name-inp:focus{border-color:var(--accent2)}
+#name-cnt{font-size:11px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+#name-cnt.req{color:var(--warn);font-weight:600}
 .d-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .d-card{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 10px}
 .d-k{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:2px}
@@ -58,6 +64,7 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-
 .row.out .bubble{background:var(--out);border-color:#24593c;border-bottom-right-radius:3px}
 .row.in .bubble{background:var(--in);border-color:#263746;border-bottom-left-radius:3px}
 .sender{font-size:11px;font-weight:600;color:var(--blue);margin-bottom:2px;padding:0 2px}
+.row.out .sender{color:var(--accent2)}
 .meta{display:flex;align-items:center;gap:6px;margin-top:3px;padding:0 2px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
 .st.delivered{color:var(--accent2)}
 .st.failed{color:var(--err);font-weight:600}
@@ -73,9 +80,25 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-
 #txt:focus{border-color:var(--accent2)}
 #send-btn{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:0 16px;height:40px;font:600 14px/1 inherit;cursor:pointer;flex-shrink:0}
 #send-btn:disabled{opacity:.45;cursor:not-allowed}
-.comp-foot{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);padding:0 2px}
+.comp-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px;color:var(--muted);padding:0 2px}
+#name-chip{background:none;border:none;color:var(--blue);font:inherit;cursor:pointer;padding:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:55%}
+#name-chip:hover{text-decoration:underline}
+#byte-cnt{white-space:nowrap;font-variant-numeric:tabular-nums}
 #byte-cnt.warn{color:var(--warn);font-weight:600}
 #byte-cnt.over{color:var(--err);font-weight:700}
+
+/* Mandatory first-visit name modal */
+#name-modal{display:none;position:fixed;inset:0;z-index:100;background:rgba(6,10,14,.86);align-items:center;justify-content:center;padding:20px}
+#name-modal.open{display:flex}
+.modal-card{width:100%;max-width:340px;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:20px;box-shadow:0 16px 40px rgba(0,0,0,.55)}
+.modal-card h2{font-size:18px;font-weight:700;margin-bottom:4px}
+#modal-sub{font-size:13px;color:var(--muted);margin-bottom:14px}
+.modal-field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+#modal-inp{width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font:15px/1.3 inherit;outline:none}
+#modal-inp:focus{border-color:var(--accent2)}
+.modal-meta{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+#modal-btn{width:100%;height:42px;background:var(--accent);color:#fff;border:none;border-radius:10px;font:600 15px/1 inherit;cursor:pointer}
+#modal-btn:disabled{opacity:.4;cursor:not-allowed}
 
 @media (max-width:480px){
   #app{border:none}
@@ -103,6 +126,11 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-
   <div id="conn-banner" role="alert"></div>
 
   <section id="drawer" aria-label="Device status">
+    <div class="name-row">
+      <label for="name-inp">Your name</label>
+      <input id="name-inp" type="text" placeholder="Required (max 12 B)" autocomplete="off" spellcheck="false">
+      <span id="name-cnt">0/12</span>
+    </div>
     <div class="d-grid">
       <div class="d-card">
         <div class="d-k">Battery</div>
@@ -144,23 +172,49 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-
       <button id="send-btn" type="button">Send</button>
     </div>
     <div class="comp-foot">
-      <span>Enter to send &middot; Shift+Enter for newline</span>
+      <button id="name-chip" type="button">Choose your name</button>
       <span id="byte-cnt">160 bytes left</span>
     </div>
   </footer>
+</div>
+
+<div id="name-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="modal-card">
+    <h2 id="modal-title">Choose your name</h2>
+    <div id="modal-sub">Joining TREELINE &middot; off-grid 433 MHz chat</div>
+    <div class="modal-field">
+      <input id="modal-inp" type="text" placeholder="e.g. Diyaa" autocomplete="off" spellcheck="false">
+      <div class="modal-meta">
+        <span>Shown on sent messages</span>
+        <span id="modal-cnt">0/12 B</span>
+      </div>
+    </div>
+    <button id="modal-btn" type="button" disabled>Join Chat</button>
+  </div>
 </div>
 
 <script>
 (function () {
   "use strict";
 
-  const MAX_BYTES = 160;
-  const MAX_DOM   = 50;
-  const encoder   = new TextEncoder();
+  const MAX_BYTES      = 160;
+  const MAX_NAME_BYTES = 12;
+  const MAX_DOM        = 50;
+  const NAME_KEY       = "treeline_username";
+  const PREFIX_RE      = /^\[([^\]]{1,12})\] ([\s\S]+)$/;
+  const encoder        = new TextEncoder();
 
   const $ = (id) => document.getElementById(id);
   const topbar     = $("topbar");
   const drawer     = $("drawer");
+  const nameInp    = $("name-inp");
+  const nameCntEl  = $("name-cnt");
+  const nameChip   = $("name-chip");
+  const nameModal  = $("name-modal");
+  const modalSub   = $("modal-sub");
+  const modalInp   = $("modal-inp");
+  const modalCnt   = $("modal-cnt");
+  const modalBtn   = $("modal-btn");
   const linkDot    = $("link-dot");
   const devNameEl  = $("dev-name");
   const peerLblEl  = $("peer-lbl");
@@ -176,25 +230,156 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-
   const byteCntEl  = $("byte-cnt");
 
   let deviceName = "TREELINE";
+  let userName   = "";
   let lastRev    = 0;
   let failStreak = 0;
   let msgBusy    = false;
   let statBusy   = false;
   let sending    = false;
 
-  // Map message id -> { row, textEl, timeEl, stEl, retryBtn, text }
+  // Map message id -> { row, senderEl, textEl, timeEl, stEl, retryBtn, rawPayload }
   const shown = new Map();
   const order = [];
 
+  // ---- Username sanitization, persistence, and mandatory modal ----
+  function clampUtf8(str, maxBytes) {
+    let out = "";
+    for (const ch of str) {
+      if (encoder.encode(out + ch).length > maxBytes) break;
+      out += ch;
+    }
+    return out;
+  }
+
+  function sanitizeNameInput(raw) {
+    // Strip brackets and ASCII control chars/newlines so [Name] prefix stays unambiguous
+    const cleaned = String(raw || "").replace(/[\[\]\x00-\x1F\x7F]/g, "");
+    return clampUtf8(cleaned, MAX_NAME_BYTES);
+  }
+
+  function isValidName(name) {
+    const t = sanitizeNameInput(name).trim();
+    return t.length >= 1 && encoder.encode(t).length <= MAX_NAME_BYTES;
+  }
+
+  function activePrefix() {
+    const clean = userName.trim();
+    return clean ? ("[" + clean + "] ") : "";
+  }
+
+  function maxMessageBytes() {
+    return MAX_BYTES - encoder.encode(activePrefix()).length;
+  }
+
+  function syncNameUI() {
+    nameInp.value = userName;
+    nameCntEl.classList.remove("req");
+    nameCntEl.textContent = encoder.encode(userName).length + "/" + MAX_NAME_BYTES;
+    nameChip.textContent = userName ? ("Name: " + userName) : "Choose your name";
+    updateCounter();
+  }
+
+  function commitValidName(raw) {
+    const clean = sanitizeNameInput(raw).trim();
+    if (!clean) return false;
+    userName = clean;
+    try { localStorage.setItem(NAME_KEY, userName); } catch (_) {}
+    syncNameUI();
+    return true;
+  }
+
+  function updateModalState() {
+    const sanitized = sanitizeNameInput(modalInp.value);
+    if (modalInp.value !== sanitized) modalInp.value = sanitized;
+    const trimmed = sanitized.trim();
+    const bytes = encoder.encode(trimmed).length;
+    modalCnt.textContent = bytes + "/" + MAX_NAME_BYTES + " B";
+    modalBtn.disabled = !(trimmed.length >= 1 && bytes <= MAX_NAME_BYTES);
+  }
+
+  function openNameModal() {
+    modalInp.value = userName;
+    updateModalState();
+    nameModal.classList.add("open");
+    setTimeout(() => { modalInp.focus(); modalInp.select(); }, 0);
+  }
+
+  function submitModal() {
+    if (!isValidName(modalInp.value)) return;
+    commitValidName(modalInp.value);
+    nameModal.classList.remove("open");
+    txtEl.focus();
+  }
+
+  modalInp.addEventListener("input", updateModalState);
+  modalInp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submitModal();
+    }
+  });
+  modalBtn.addEventListener("click", submitModal);
+
+  function loadName() {
+    try {
+      const saved = localStorage.getItem(NAME_KEY);
+      if (saved && isValidName(saved)) {
+        userName = sanitizeNameInput(saved).trim();
+      }
+    } catch (_) {}
+    syncNameUI();
+    if (!userName) openNameModal();
+  }
+
+  // Drawer rename input: saves valid names live; never allows saving blank
+  nameInp.addEventListener("input", () => {
+    const sanitized = sanitizeNameInput(nameInp.value);
+    if (nameInp.value !== sanitized) nameInp.value = sanitized;
+    const trimmed = sanitized.trim();
+    if (trimmed.length >= 1) {
+      userName = trimmed;
+      try { localStorage.setItem(NAME_KEY, userName); } catch (_) {}
+      nameCntEl.classList.remove("req");
+      nameCntEl.textContent = encoder.encode(sanitized).length + "/" + MAX_NAME_BYTES;
+      nameChip.textContent = "Name: " + userName;
+      updateCounter();
+    } else {
+      nameCntEl.classList.add("req");
+      nameCntEl.textContent = "Required";
+    }
+  });
+
+  function finalizeDrawerName() {
+    const trimmed = sanitizeNameInput(nameInp.value).trim();
+    if (trimmed.length >= 1) {
+      commitValidName(trimmed);
+    } else if (userName) {
+      syncNameUI();       // revert cleared input back to last valid name
+    } else {
+      openNameModal();
+    }
+  }
+  nameInp.addEventListener("blur", finalizeDrawerName);
+  nameInp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); finalizeDrawerName(); nameInp.blur(); }
+  });
+
   // Toggle status drawer
-  function toggleDrawer() {
-    const open = drawer.classList.toggle("open");
+  function setDrawerOpen(open) {
+    drawer.classList.toggle("open", open);
     topbar.classList.toggle("open", open);
     topbar.setAttribute("aria-expanded", String(open));
   }
+  function toggleDrawer() { setDrawerOpen(!drawer.classList.contains("open")); }
   topbar.addEventListener("click", toggleDrawer);
   topbar.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleDrawer(); }
+  });
+  nameChip.addEventListener("click", () => {
+    if (!userName) { openNameModal(); return; }
+    setDrawerOpen(true);
+    nameInp.focus();
+    nameInp.select();
   });
 
   function setConnected(ok) {
@@ -252,6 +437,23 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-
     }
   }
 
+  // Safely parse optional leading "[Name] " prefix (strict textContent only)
+  function parseMsgPrefix(raw) {
+    const s = typeof raw === "string" ? raw : "";
+    const match = PREFIX_RE.exec(s);
+    if (match) return { nick: match[1], body: match[2] };
+    return { nick: "", body: s };
+  }
+
+  function formatSenderLabel(m, nick) {
+    const unit = m.from || (m.dir === "out" ? deviceName : "");
+    if (m.dir === "out") {
+      return nick ? (unit + " \u00B7 " + nick) : "";
+    }
+    if (unit && nick) return unit + " \u00B7 " + nick;
+    return unit || nick;
+  }
+
   function renderStatusInto(rec, m) {
     rec.timeEl.textContent = fmtTime(m.time);
     rec.stEl.className = "st " + (m.status || "");
@@ -267,14 +469,20 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-
     }
   }
 
+  function applyContent(rec, m) {
+    const parsed = parseMsgPrefix(typeof m.text === "string" ? m.text : rec.rawPayload);
+    if (typeof m.text === "string") rec.rawPayload = m.text;
+    rec.textEl.textContent = parsed.body;     // strict textContent (XSS-safe)
+    const lbl = formatSenderLabel(m, parsed.nick);
+    rec.senderEl.textContent = lbl;           // strict textContent (XSS-safe)
+    rec.senderEl.style.display = lbl ? "block" : "none";
+  }
+
   function upsertMessage(m) {
     emptyHint.style.display = "none";
     const existing = shown.get(m.id);
     if (existing) {
-      if (typeof m.text === "string") {
-        existing.text = m.text;
-        existing.textEl.textContent = m.text; // strict textContent (XSS-safe)
-      }
+      applyContent(existing, m);
       renderStatusInto(existing, m);
       return false;
     }
@@ -282,16 +490,12 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-
     const row = document.createElement("div");
     row.className = "row " + (m.dir === "out" ? "out" : "in");
 
-    if (m.dir !== "out" && m.from) {
-      const sender = document.createElement("div");
-      sender.className = "sender";
-      sender.textContent = m.from;
-      row.appendChild(sender);
-    }
+    const senderEl = document.createElement("div");
+    senderEl.className = "sender";
+    row.appendChild(senderEl);
 
     const bubble = document.createElement("div");
     bubble.className = "bubble";
-    bubble.textContent = m.text || "";        // strict textContent (XSS-safe)
     row.appendChild(bubble);
 
     const meta = document.createElement("div");
@@ -305,14 +509,16 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-
     retryBtn.textContent = "Send again";
     retryBtn.style.display = "none";
 
-    const rec = { row, textEl: bubble, timeEl, stEl, retryBtn, text: m.text || "" };
-    retryBtn.addEventListener("click", () => { sendText(rec.text, false); });
+    const rec = { row, senderEl, textEl: bubble, timeEl, stEl, retryBtn, rawPayload: m.text || "" };
+    // Retrying sends the already-formatted payload without double-prepending [Name]
+    retryBtn.addEventListener("click", () => { postPayload(rec.rawPayload, false); });
 
     meta.appendChild(timeEl);
     meta.appendChild(stEl);
     meta.appendChild(retryBtn);
     row.appendChild(meta);
 
+    applyContent(rec, m);
     renderStatusInto(rec, m);
     msgsEl.appendChild(row);
     shown.set(m.id, rec);
@@ -321,10 +527,11 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-
     return true;
   }
 
-  // Byte counter and textarea auto-resize
+  // Live UTF-8 byte counter (160 - prefixBytes) and auto-resize
   function updateCounter() {
-    const used = encoder.encode(txtEl.value).length;
-    const left = MAX_BYTES - used;
+    const budget = maxMessageBytes();
+    const used   = encoder.encode(txtEl.value).length;
+    const left   = budget - used;
     byteCntEl.className = "";
     if (left < 0) {
       byteCntEl.textContent = Math.abs(left) + " bytes over limit";
@@ -337,7 +544,9 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-
     txtEl.style.height = "auto";
     txtEl.style.height = Math.min(txtEl.scrollHeight, 110) + "px";
   }
+
   txtEl.addEventListener("input", () => { updateCounter(); showSendError(""); });
+  txtEl.addEventListener("paste", () => showSendError(""));
 
   function errorReason(code) {
     switch (code) {
@@ -349,11 +558,13 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-
     }
   }
 
-  async function sendText(text, clearInput) {
+  async function postPayload(payload, clearInput) {
     if (sending) return;
-    if (!text || !text.trim()) { showSendError("Message is empty."); return; }
-    const bytes = encoder.encode(text).length;
-    if (bytes > MAX_BYTES) { showSendError("Message is " + bytes + " bytes (max " + MAX_BYTES + ")."); return; }
+    const totalBytes = encoder.encode(payload).length;
+    if (totalBytes > MAX_BYTES) {
+      showSendError("Message is " + totalBytes + " bytes (max " + MAX_BYTES + ").");
+      return;
+    }
 
     sending = true;
     sendBtn.disabled = true;
@@ -363,7 +574,7 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-
       const r = await fetch("/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text })
+        body: JSON.stringify({ text: payload })
       });
       const data = await r.json().catch(() => ({}));
       setConnected(true);
@@ -378,7 +589,7 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-
         from: deviceName,
         time: Math.floor(Date.now() / 1000),
         status: data.status || "sending",
-        text
+        text: payload
       });
       if (stick) msgsEl.scrollTop = msgsEl.scrollHeight;
       if (clearInput) {
@@ -394,11 +605,27 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-
     }
   }
 
-  sendBtn.addEventListener("click", () => sendText(txtEl.value, true));
+  function sendComposer() {
+    if (!isValidName(userName)) {
+      openNameModal();
+      return;
+    }
+    const raw = txtEl.value;
+    if (!raw || !raw.trim()) {
+      showSendError("Message is empty.");
+      return;
+    }
+    const payload = activePrefix() + raw;
+    postPayload(payload, true);
+  }
+
+  sendBtn.addEventListener("click", sendComposer);
   txtEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      sendText(txtEl.value, true);
+      sendComposer();
+    } else if (e.key.length === 1 || e.key === "Backspace") {
+      showSendError("");
     }
   });
 
@@ -447,6 +674,7 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-
     if (s.device) {
       deviceName = s.device;
       devNameEl.textContent = s.device;
+      modalSub.textContent = "Joining " + s.device + " \u00B7 off-grid 433 MHz chat";
       document.title = s.device + " \u2014 TREELINE";
     }
     const lk = s.link || {};
@@ -530,7 +758,7 @@ html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-
     }
   });
 
-  updateCounter();
+  loadName();
   syncTime().then(() => {
     pollStatus();
     pollMessages();

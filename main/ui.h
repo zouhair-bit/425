@@ -49,8 +49,11 @@ typedef struct {
     // inbox, newest first
     ui_msg_t msgs[UI_MSGS];
     int nmsgs;
-    // names
+    // names & Wi-Fi AP info (populated from main.c so OLED always stays in sync)
     char me[8], peer[8];
+    char wifi_ssid[24];
+    char wifi_pass[24];
+    char wifi_ip[16];
     // boot self-test log: 7 lines, ok flags
     char boot_line[7][24];
     bool boot_ok[7];

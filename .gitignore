@@ -1,0 +1,12 @@
+# ESP-IDF build output
+build/
+managed_components/
+dependencies.lock
+
+# Backup copies (git history replaces these)
+*.bak
+*.bak[0-9]*
+sdkconfig.old
+
+# Editor
+.vscode/

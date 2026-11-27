@@ -382,8 +382,6 @@ static void bolt(float x, float y, int v)
     for (int j = 0; j < 7; j++) for (int i = 0; i < 5; i++) if (BOLT[j][i] == 'X') pset(x + i, y + j, v);
 }
 static float chgT = NAN;
-static float pingRxT = NAN;          // a ping from the peer was answered (toast like chgToast)
-static char pingRxFrom[8];
 static void statusBar(float dotPos)
 {
     float ex = T4(S.me, 0, 0) + 1;
@@ -440,9 +438,13 @@ static void pHome(float pt)
     if (S.wifiDev < 0) snprintf(l[3], 32, "WIFI off");
     else snprintf(l[3], 32, "WIFI %d phones", S.wifiDev);
     snprintf(l[4], 32, "MSGS %d new", S.unread);
-    if (S.charging) snprintf(l[5], 32, "BATT charging");
-    else if (S.batt_ok) snprintf(l[5], 32, "BATT %.2fV", S.battV);
-    else snprintf(l[5], 32, "BATT %s", S.usb_power ? "USB power" : "none");
+    if (S.charging) {
+        if (S.batt_temp_ok) snprintf(l[5], 32, "BATT chg %.0f\xb0" "C", S.tBatt);
+        else snprintf(l[5], 32, "BATT chg --");
+    } else if (S.batt_ok) {
+        if (S.batt_temp_ok) snprintf(l[5], 32, "BATT %.2fV %.0f\xb0" "C", S.battV, S.tBatt);
+        else snprintf(l[5], 32, "BATT %.2fV --", S.battV);
+    } else snprintf(l[5], 32, "BATT %s", S.usb_power ? "USB power" : "none");
     T4(typed(l[0], pt * 1.2f), 32, 10);
     for (int i = 1; i < 6; i++) T4(decode(l[i], (pt - 8 - i * 3) / 10, i * 11), 32, 10 + i * 7);
     if (pt > 30) T4(blink(20) ? "$ _" : "$ ", 32, 54);
@@ -493,7 +495,8 @@ static void pSensors(float pt)
     const char *ar[4] = { tr < 0 ? "v" : tr > 0 ? "^" : "-", "-", "^", "-" };
     if (S.press_ok) { snprintf(v[0], 16, "%.1f", S.press); snprintf(v[1], 16, "%d", rnd(S.alt)); snprintf(v[2], 16, "%.1f", S.tAir); }
     else { strcpy(v[0], "---"); strcpy(v[1], "---"); strcpy(v[2], "---"); }
-    snprintf(v[3], 16, "%.1f", S.tCpu);
+    if (S.chip_temp_ok) snprintf(v[3], 16, "%.1f", S.tCpu);
+    else strcpy(v[3], "---");
     for (int i = 0; i < 4; i++) {
         float y = 18 + i * 11;
         T4(decode(lab[i], (pt - i * 3) / 8, i), 20, y + 1);
@@ -659,7 +662,8 @@ static void pSys(float pt)
     strcpy(info[3], "CPU  C3 @160MHz");
     snprintf(info[4], 32, "RAM  %luK free", (unsigned long)(S.heap_free / 1024));
     snprintf(info[5], 32, "UP   %s", fmtUp(S.uptime));
-    snprintf(info[6], 32, "TEMP %.1f\xb0" "C", S.tCpu);
+    if (S.chip_temp_ok) snprintf(info[6], 32, "TEMP %.1f\xb0" "C", S.tCpu);
+    else strcpy(info[6], "TEMP --");
     for (int i = 0; i < 7; i++) T4(decode(info[i], (pt - 6 - i * 3) / 10, i + 40), 40, 9 + i * 7);
     if (pt > 34) for (int i = 0; i < 6; i++) for (int y = 0; y < 5; y++) for (int x = 0; x < 6; x++) if (((x + y) % (i + 1)) == 0) pset(40 + i * 8 + x, 58 + y, 1);
 }
@@ -807,12 +811,24 @@ static void warnOverlay(void)
     if (overlay.warn == 1) {
         if (blink(10)) text("!", 14, 17, F610, 1, 2);
         T4("USB-C + SWITCH ON", 30, 16); T4("turn the switch OFF", 30, 26); T4("before plugging", 30, 33); T4("the ESP into USB", 30, 40);
+    } else if (overlay.warn == 2) {
+        if (blink(10)) text("!", 14, 17, F610, 1, 2);
+        char b[24];
+        if (S.batt_temp_ok) snprintf(b, sizeof(b), "TEMP %.1f\xb0" "C (>45)", S.tBatt);
+        else strcpy(b, "OVER 45\xb0" "C");
+        text("BATTERY HOT", 30, 16, F57, 1, 1); T4(b, 30, 27); T4("let unit cool", 30, 35);
+    } else if (overlay.warn == 3) {
+        if (blink(10)) text("!", 14, 17, F610, 1, 2);
+        text("STORM ALERT", 30, 16, F57, 1, 1); T4("rapid pressure drop", 30, 27); T4("check weather", 30, 35);
+    } else if (overlay.warn == 4) {
+        if (blink(10)) text("!", 14, 17, F610, 1, 2);
+        text("SHUTTING DOWN", 30, 16, F57, 1, 1); T4("battery < 3.5V", 30, 27); T4("press btn to wake", 30, 35);
     } else {
         text("[", 14, 22, F610, 1, 1); rect(20, 25, 16, 9, 1); fill(36, 27, 2, 5, 1); if (blink(10)) fill(22, 27, 2, 5, 1);
         char b[16]; snprintf(b, sizeof(b), "%d%% left", S.batt);
         text("LOW BATTERY", 46, 17, F57, 1, 1); T4(b, 46, 27); T4("charge via", 46, 35); T4("USB-C", 46, 42);
     }
-    if (blink(24)) textC("press = ok", 64, 48, F46, 1, 1);
+    if (overlay.warn != 4 && blink(24)) textC("press = ok", 64, 48, F46, 1, 1);
 }
 
 static void chgToast(float t)
@@ -823,18 +839,6 @@ static void chgToast(float t)
     fill(x - 1, y - 1, w + 2, 15, 0); fill(x, y, w, 13, 1);
     if (S.charging) bolt(x + 5, y + 3, 0);
     else { rect(x + 4, y + 4, 9, 5, 0); fill(x + 13, y + 5, 1, 3, 0); fill(x + 5, y + 5, rnd(7 * S.batt / 100.0f), 3, 0); }
-    text(label, x + 17, y + 3, F57, 0, 1);
-}
-
-// same toast as chgToast: an antenna icon and "PING <peer>"
-static void pingToast(float t)
-{
-    float inY = easeOut(t / 10), outY = t > 60 ? easeInOut((t - 60) / 15) : 0, y = rnd(lerp(-14, 22, inY) - outY * 36);
-    char label[16]; snprintf(label, sizeof(label), "PING %s", pingRxFrom);
-    float w = tw(label, F57, 1) + 22, x = rnd(64 - w / 2);
-    fill(x - 1, y - 1, w + 2, 15, 0); fill(x, y, w, 13, 1);
-    vl(x + 8, y + 5, y + 10, 0); line(x + 5, y + 2, x + 8, y + 5, 0); line(x + 11, y + 2, x + 8, y + 5, 0);
-    if (blink(6)) { pset(x + 4, y + 6, 0); pset(x + 12, y + 6, 0); }
     text(label, x + 17, y + 3, F57, 0, 1);
 }
 
@@ -999,13 +1003,58 @@ void ui_button(bool down, uint32_t now)
     clickPending = true; clickDeadline = now + 280;
 }
 
+// Convert UTF-8 message text into an ASCII/Latin-1 preview for the 95-byte OLED buffer.
+// Truncates cleanly on UTF-8 character boundaries (never splits a multi-byte sequence).
+static void sanitize_oled_text(char *dst, size_t dst_sz, const char *src)
+{
+    if (dst_sz == 0) return;
+    size_t out = 0;
+    const unsigned char *p = (const unsigned char *)src;
+    bool truncated = false;
+
+    while (*p) {
+        unsigned char c = *p;
+        unsigned char mapped;
+        size_t step = 1;
+
+        if (c < 0x80) {
+            mapped = (c == '\r' || c == '\n' || c == '\t') ? ' ' : (c >= 0x20 && c <= 0x7E ? c : '?');
+        } else if ((c & 0xE0) == 0xC0 && p[1]) {
+            step = 2;
+            mapped = (c == 0xC2 && p[1] == 0xB0) ? 0xB0 : '?';   // preserve degree symbol
+        } else if ((c & 0xF0) == 0xE0 && p[1] && p[2]) {
+            step = 3;
+            mapped = '?';
+        } else if ((c & 0xF8) == 0xF0 && p[1] && p[2] && p[3]) {
+            step = 4;
+            mapped = '?';
+        } else {
+            mapped = '?';
+        }
+
+        if (out + 1 >= dst_sz) {
+            truncated = true;
+            break;
+        }
+        dst[out++] = (char)mapped;
+        p += step;
+    }
+    dst[out] = '\0';
+    if (truncated && dst_sz >= 4) {
+        dst[dst_sz - 4] = '.';
+        dst[dst_sz - 3] = '.';
+        dst[dst_sz - 2] = '.';
+        dst[dst_sz - 1] = '\0';
+    }
+}
+
 // ---------------------------------------------------------------- events from the firmware
 void ui_message(const char *from, const char *txt)
 {
     if (S.nmsgs == UI_MSGS) S.nmsgs--;
     memmove(&S.msgs[1], &S.msgs[0], sizeof(ui_msg_t) * S.nmsgs);
     snprintf(S.msgs[0].from, sizeof(S.msgs[0].from), "%s", from);
-    snprintf(S.msgs[0].text, sizeof(S.msgs[0].text), "%s", txt);
+    sanitize_oled_text(S.msgs[0].text, sizeof(S.msgs[0].text), txt);
     S.msgs[0].rx_up = S.uptime;
     S.nmsgs++; S.unread++;
     if (mode == M_BOOT) return;
@@ -1025,12 +1074,6 @@ void ui_warn(int kind)
     if (mode == M_BOOT) return;
     if (mode == M_OFF) wake(THEN_NONE);
     overlay.kind = 2; overlay.t0 = T; overlay.warn = kind;
-}
-void ui_ping_rx(const char *from)
-{
-    snprintf(pingRxFrom, sizeof(pingRxFrom), "%s", from);
-    pingRxT = T;
-    if (mode == M_OFF) wake(THEN_NONE);
 }
 void ui_ping_result(bool ok, int rtt)
 {
@@ -1080,7 +1123,6 @@ void ui_frame(uint32_t now)
         } else { drawPage(pageIdx, bufA); setTarget(fb); memcpy(fb, bufA, sizeof(fb)); }
         statusBar(dotPos);
         if (!isnan(chgT) && T - chgT < 75) chgToast(T - chgT);
-        if (!isnan(pingRxT) && T - pingRxT < 75) pingToast(T - pingRxT);
         if (overlay.kind == 2) warnOverlay();
     }
     if (holdStart >= 0 && mode != M_BOOT) {

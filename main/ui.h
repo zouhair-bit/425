@@ -36,8 +36,10 @@ typedef struct {
     int   wifiDev;          // -1 = Wi-Fi off
     // sensors
     bool  press_ok;
+    bool  batt_temp_ok;     // DS18B20 battery temperature sensor answering
+    bool  chip_temp_ok;     // ESP32-C3 internal temperature sensor answering
     char  baro_err[28];     // why the BMP280 is not working (shown on screen)
-    float press, alt, tAir, tCpu;
+    float press, alt, tAir, tCpu, tBatt;
     float hist[UI_HIST];
     int   nhist;            // valid points in hist (newest last)
     // system
@@ -47,8 +49,11 @@ typedef struct {
     // inbox, newest first
     ui_msg_t msgs[UI_MSGS];
     int nmsgs;
-    // names
+    // names & Wi-Fi AP info (populated from main.c so OLED always stays in sync)
     char me[8], peer[8];
+    char wifi_ssid[24];
+    char wifi_pass[24];
+    char wifi_ip[16];
     // boot self-test log: 7 lines, ok flags
     char boot_line[7][24];
     bool boot_ok[7];
@@ -64,9 +69,8 @@ const uint8_t *ui_fb(void);                  // 128*64 bytes, 1 = lit
 // events (call under the firmware's lock)
 void ui_message(const char *from, const char *text);
 void ui_set_charging(bool on);
-void ui_warn(int kind);                      // 0 = low battery, 1 = USB-C with switch ON
+void ui_warn(int kind);                      // 0 = low batt, 1 = USB+SW, 2 = batt hot, 3 = storm, 4 = shutdown
 void ui_ping_result(bool ok, int rtt_ms);
-void ui_ping_rx(const char *from);           // the peer pinged us (we answered): short toast
 
 // Wi-Fi update mode screen
 void ui_update_mode(const char *ssid, const char *pass, const char *ip);

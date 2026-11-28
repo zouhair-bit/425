@@ -1,0 +1,771 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<title>TREELINE Chat</title>
+<style>
+:root{
+  --bg:#0b1116;--panel:#121b22;--panel2:#18242e;--border:#233443;
+  --fg:#e6edf3;--muted:#8b9eb0;--accent:#2ea043;--accent2:#3fb950;
+  --out:#163826;--in:#1a2631;--warn:#d29922;--err:#f85149;--blue:#58a6ff;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--fg);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+#app{display:flex;flex-direction:column;height:100%;max-width:720px;margin:0 auto;background:var(--bg);border-left:1px solid #162029;border-right:1px solid #162029}
+
+/* Top bar */
+#topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--panel);border-bottom:1px solid var(--border);cursor:pointer;user-select:none;gap:10px}
+.tb-left{display:flex;align-items:center;gap:9px;min-width:0}
+.brand{font-weight:700;font-size:16px;letter-spacing:.06em}
+.dot{width:10px;height:10px;border-radius:50%;background:#5c6b78;flex-shrink:0;transition:background .2s}
+.dot.up{background:var(--accent2);box-shadow:0 0 8px rgba(63,185,80,.6)}
+.peer-lbl{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tb-right{display:flex;align-items:center;gap:10px;font-size:13px;flex-shrink:0}
+.batt-pill{display:flex;align-items:center;gap:4px;padding:3px 8px;border-radius:12px;background:var(--panel2);border:1px solid var(--border);font-variant-numeric:tabular-nums}
+.batt-pill.low{border-color:var(--err);color:var(--err)}
+.bolt{color:#f0c64f;font-size:13px;display:none}
+.bolt.on{display:inline}
+.chev{font-size:11px;color:var(--muted);transition:transform .2s}
+#topbar.open .chev{transform:rotate(180deg)}
+
+/* Connection lost banner */
+#conn-banner{display:none;background:#491b1d;color:#ffd2d0;border-bottom:1px solid var(--err);padding:8px 14px;font-size:13px;text-align:center}
+#conn-banner.show{display:block}
+
+/* Collapsible status drawer */
+#drawer{display:none;background:var(--panel);border-bottom:1px solid var(--border);padding:10px 14px;font-size:13px;max-height:52vh;overflow-y:auto}
+#drawer.open{display:block}
+.name-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:7px 10px}
+.name-row label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);white-space:nowrap}
+#name-inp{flex:1;min-width:0;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:5px 8px;font:13px/1.2 inherit;outline:none}
+#name-inp:focus{border-color:var(--accent2)}
+#name-cnt{font-size:11px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+#name-cnt.req{color:var(--warn);font-weight:600}
+.d-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.d-card{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:8px 10px}
+.d-k{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:2px}
+.d-v{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}
+.d-sub{font-size:11px;color:var(--muted);margin-top:2px}
+.badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.badge{font-size:11px;font-weight:600;padding:3px 8px;border-radius:10px}
+.badge.warn{background:rgba(210,153,34,.18);color:#f2cc60;border:1px solid var(--warn)}
+.badge.err{background:rgba(248,81,73,.18);color:#ff9492;border:1px solid var(--err)}
+.d-foot{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:11px;color:var(--muted)}
+.d-foot a{color:var(--blue);text-decoration:none}
+
+/* Message list */
+#msgs{flex:1;overflow-y:auto;padding:12px 12px 8px;display:flex;flex-direction:column;gap:8px;scroll-behavior:smooth}
+#empty-hint{margin:auto;color:var(--muted);text-align:center;font-size:14px;padding:24px}
+.row{display:flex;flex-direction:column;max-width:84%}
+.row.out{align-self:flex-end;align-items:flex-end}
+.row.in{align-self:flex-start;align-items:flex-start}
+.bubble{padding:8px 11px;border-radius:12px;border:1px solid var(--border);white-space:pre-wrap;word-break:break-word;font-size:15px}
+.row.out .bubble{background:var(--out);border-color:#24593c;border-bottom-right-radius:3px}
+.row.in .bubble{background:var(--in);border-color:#263746;border-bottom-left-radius:3px}
+.sender{font-size:11px;font-weight:600;color:var(--blue);margin-bottom:2px;padding:0 2px}
+.row.out .sender{color:var(--accent2)}
+.meta{display:flex;align-items:center;gap:6px;margin-top:3px;padding:0 2px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.st.delivered{color:var(--accent2)}
+.st.failed{color:var(--err);font-weight:600}
+.retry-btn{background:none;border:1px solid var(--err);color:#ff9492;border-radius:6px;padding:1px 7px;font-size:11px;cursor:pointer}
+.retry-btn:hover{background:rgba(248,81,73,.15)}
+
+/* Input area */
+#send-err{display:none;background:#3a191b;color:#ffb4b0;padding:6px 12px;font-size:12px;border-top:1px solid var(--err)}
+#send-err.show{display:block}
+#composer{display:flex;flex-direction:column;gap:5px;padding:8px 10px 10px;background:var(--panel);border-top:1px solid var(--border)}
+.comp-row{display:flex;gap:8px;align-items:flex-end}
+#txt{flex:1;min-height:40px;max-height:110px;resize:none;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:10px;padding:9px 11px;font:inherit;line-height:1.35;outline:none}
+#txt:focus{border-color:var(--accent2)}
+#send-btn{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:0 16px;height:40px;font:600 14px/1 inherit;cursor:pointer;flex-shrink:0}
+#send-btn:disabled{opacity:.45;cursor:not-allowed}
+.comp-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px;color:var(--muted);padding:0 2px}
+#name-chip{background:none;border:none;color:var(--blue);font:inherit;cursor:pointer;padding:0;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:55%}
+#name-chip:hover{text-decoration:underline}
+#byte-cnt{white-space:nowrap;font-variant-numeric:tabular-nums}
+#byte-cnt.warn{color:var(--warn);font-weight:600}
+#byte-cnt.over{color:var(--err);font-weight:700}
+
+/* Mandatory first-visit name modal */
+#name-modal{display:none;position:fixed;inset:0;z-index:100;background:rgba(6,10,14,.86);align-items:center;justify-content:center;padding:20px}
+#name-modal.open{display:flex}
+.modal-card{width:100%;max-width:340px;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:20px;box-shadow:0 16px 40px rgba(0,0,0,.55)}
+.modal-card h2{font-size:18px;font-weight:700;margin-bottom:4px}
+#modal-sub{font-size:13px;color:var(--muted);margin-bottom:14px}
+.modal-field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+#modal-inp{width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font:15px/1.3 inherit;outline:none}
+#modal-inp:focus{border-color:var(--accent2)}
+.modal-meta{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+#modal-btn{width:100%;height:42px;background:var(--accent);color:#fff;border:none;border-radius:10px;font:600 15px/1 inherit;cursor:pointer}
+#modal-btn:disabled{opacity:.4;cursor:not-allowed}
+
+@media (max-width:480px){
+  #app{border:none}
+  .row{max-width:90%}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="topbar" role="button" tabindex="0" aria-expanded="false">
+    <div class="tb-left">
+      <span id="link-dot" class="dot" title="Radio link"></span>
+      <span id="dev-name" class="brand">TREELINE</span>
+      <span id="peer-lbl" class="peer-lbl"></span>
+    </div>
+    <div class="tb-right">
+      <span id="batt-pill" class="batt-pill">
+        <span id="bolt" class="bolt" aria-label="Charging">&#9889;</span>
+        <span id="batt-pct">--%</span>
+      </span>
+      <span class="chev">&#9660;</span>
+    </div>
+  </header>
+
+  <div id="conn-banner" role="alert"></div>
+
+  <section id="drawer" aria-label="Device status">
+    <div class="name-row">
+      <label for="name-inp">Your name</label>
+      <input id="name-inp" type="text" placeholder="Required (max 12 B)" autocomplete="off" spellcheck="false">
+      <span id="name-cnt">0/12</span>
+    </div>
+    <div class="d-grid">
+      <div class="d-card">
+        <div class="d-k">Battery</div>
+        <div id="st-batt" class="d-v">--</div>
+        <div id="st-btemp" class="d-sub">Temp: --</div>
+      </div>
+      <div class="d-card">
+        <div class="d-k">Radio Link</div>
+        <div id="st-link" class="d-v">--</div>
+        <div id="st-radio" class="d-sub">Ping: -- &middot; Loss: --</div>
+      </div>
+      <div class="d-card">
+        <div class="d-k">Barometer</div>
+        <div id="st-press" class="d-v">--</div>
+        <div id="st-alt" class="d-sub">Alt: --</div>
+      </div>
+      <div class="d-card">
+        <div class="d-k">System</div>
+        <div id="st-chip" class="d-v">Chip: --</div>
+        <div id="st-sys" class="d-sub">Up: -- &middot; Wi-Fi: --</div>
+      </div>
+    </div>
+    <div id="st-badges" class="badges"></div>
+    <div class="d-foot">
+      <span id="st-txrx">TX 0 / RX 0</span>
+      <span><a href="/ota">Firmware Update</a> &middot; <a href="/log">Logs</a></span>
+    </div>
+  </section>
+
+  <main id="msgs" aria-live="polite">
+    <div id="empty-hint">No messages yet. Type below to send over 433 MHz radio.</div>
+  </main>
+
+  <div id="send-err" role="alert"></div>
+
+  <footer id="composer">
+    <div class="comp-row">
+      <textarea id="txt" rows="1" placeholder="Message..." autocomplete="off"></textarea>
+      <button id="send-btn" type="button">Send</button>
+    </div>
+    <div class="comp-foot">
+      <button id="name-chip" type="button">Choose your name</button>
+      <span id="byte-cnt">160 bytes left</span>
+    </div>
+  </footer>
+</div>
+
+<div id="name-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="modal-card">
+    <h2 id="modal-title">Choose your name</h2>
+    <div id="modal-sub">Joining TREELINE &middot; off-grid 433 MHz chat</div>
+    <div class="modal-field">
+      <input id="modal-inp" type="text" placeholder="e.g. Diyaa" autocomplete="off" spellcheck="false">
+      <div class="modal-meta">
+        <span>Shown on sent messages</span>
+        <span id="modal-cnt">0/12 B</span>
+      </div>
+    </div>
+    <button id="modal-btn" type="button" disabled>Join Chat</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const MAX_BYTES      = 160;
+  const MAX_NAME_BYTES = 12;
+  const MAX_DOM        = 50;
+  const NAME_KEY       = "treeline_username";
+  const PREFIX_RE      = /^\[([^\]]{1,12})\] ([\s\S]+)$/;
+  const encoder        = new TextEncoder();
+
+  const $ = (id) => document.getElementById(id);
+  const topbar     = $("topbar");
+  const drawer     = $("drawer");
+  const nameInp    = $("name-inp");
+  const nameCntEl  = $("name-cnt");
+  const nameChip   = $("name-chip");
+  const nameModal  = $("name-modal");
+  const modalSub   = $("modal-sub");
+  const modalInp   = $("modal-inp");
+  const modalCnt   = $("modal-cnt");
+  const modalBtn   = $("modal-btn");
+  const linkDot    = $("link-dot");
+  const devNameEl  = $("dev-name");
+  const peerLblEl  = $("peer-lbl");
+  const battPill   = $("batt-pill");
+  const boltEl     = $("bolt");
+  const battPctEl  = $("batt-pct");
+  const connBanner = $("conn-banner");
+  const msgsEl     = $("msgs");
+  const emptyHint  = $("empty-hint");
+  const sendErrEl  = $("send-err");
+  const txtEl      = $("txt");
+  const sendBtn    = $("send-btn");
+  const byteCntEl  = $("byte-cnt");
+
+  let deviceName = "TREELINE";
+  let userName   = "";
+  let lastRev    = 0;
+  let failStreak = 0;
+  let msgBusy    = false;
+  let statBusy   = false;
+  let sending    = false;
+
+  // Map message id -> { row, senderEl, textEl, timeEl, stEl, retryBtn, rawPayload }
+  const shown = new Map();
+  const order = [];
+
+  // ---- Username sanitization, persistence, and mandatory modal ----
+  function clampUtf8(str, maxBytes) {
+    let out = "";
+    for (const ch of str) {
+      if (encoder.encode(out + ch).length > maxBytes) break;
+      out += ch;
+    }
+    return out;
+  }
+
+  function sanitizeNameInput(raw) {
+    // Strip brackets and ASCII control chars/newlines so [Name] prefix stays unambiguous
+    const cleaned = String(raw || "").replace(/[\[\]\x00-\x1F\x7F]/g, "");
+    return clampUtf8(cleaned, MAX_NAME_BYTES);
+  }
+
+  function isValidName(name) {
+    const t = sanitizeNameInput(name).trim();
+    return t.length >= 1 && encoder.encode(t).length <= MAX_NAME_BYTES;
+  }
+
+  function activePrefix() {
+    const clean = userName.trim();
+    return clean ? ("[" + clean + "] ") : "";
+  }
+
+  function maxMessageBytes() {
+    return MAX_BYTES - encoder.encode(activePrefix()).length;
+  }
+
+  function syncNameUI() {
+    nameInp.value = userName;
+    nameCntEl.classList.remove("req");
+    nameCntEl.textContent = encoder.encode(userName).length + "/" + MAX_NAME_BYTES;
+    nameChip.textContent = userName ? ("Name: " + userName) : "Choose your name";
+    updateCounter();
+  }
+
+  function commitValidName(raw) {
+    const clean = sanitizeNameInput(raw).trim();
+    if (!clean) return false;
+    userName = clean;
+    try { localStorage.setItem(NAME_KEY, userName); } catch (_) {}
+    syncNameUI();
+    return true;
+  }
+
+  function updateModalState() {
+    const sanitized = sanitizeNameInput(modalInp.value);
+    if (modalInp.value !== sanitized) modalInp.value = sanitized;
+    const trimmed = sanitized.trim();
+    const bytes = encoder.encode(trimmed).length;
+    modalCnt.textContent = bytes + "/" + MAX_NAME_BYTES + " B";
+    modalBtn.disabled = !(trimmed.length >= 1 && bytes <= MAX_NAME_BYTES);
+  }
+
+  function openNameModal() {
+    modalInp.value = userName;
+    updateModalState();
+    nameModal.classList.add("open");
+    setTimeout(() => { modalInp.focus(); modalInp.select(); }, 0);
+  }
+
+  function submitModal() {
+    if (!isValidName(modalInp.value)) return;
+    commitValidName(modalInp.value);
+    nameModal.classList.remove("open");
+    txtEl.focus();
+  }
+
+  modalInp.addEventListener("input", updateModalState);
+  modalInp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submitModal();
+    }
+  });
+  modalBtn.addEventListener("click", submitModal);
+
+  function loadName() {
+    try {
+      const saved = localStorage.getItem(NAME_KEY);
+      if (saved && isValidName(saved)) {
+        userName = sanitizeNameInput(saved).trim();
+      }
+    } catch (_) {}
+    syncNameUI();
+    if (!userName) openNameModal();
+  }
+
+  // Drawer rename input: saves valid names live; never allows saving blank
+  nameInp.addEventListener("input", () => {
+    const sanitized = sanitizeNameInput(nameInp.value);
+    if (nameInp.value !== sanitized) nameInp.value = sanitized;
+    const trimmed = sanitized.trim();
+    if (trimmed.length >= 1) {
+      userName = trimmed;
+      try { localStorage.setItem(NAME_KEY, userName); } catch (_) {}
+      nameCntEl.classList.remove("req");
+      nameCntEl.textContent = encoder.encode(sanitized).length + "/" + MAX_NAME_BYTES;
+      nameChip.textContent = "Name: " + userName;
+      updateCounter();
+    } else {
+      nameCntEl.classList.add("req");
+      nameCntEl.textContent = "Required";
+    }
+  });
+
+  function finalizeDrawerName() {
+    const trimmed = sanitizeNameInput(nameInp.value).trim();
+    if (trimmed.length >= 1) {
+      commitValidName(trimmed);
+    } else if (userName) {
+      syncNameUI();       // revert cleared input back to last valid name
+    } else {
+      openNameModal();
+    }
+  }
+  nameInp.addEventListener("blur", finalizeDrawerName);
+  nameInp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); finalizeDrawerName(); nameInp.blur(); }
+  });
+
+  // Toggle status drawer
+  function setDrawerOpen(open) {
+    drawer.classList.toggle("open", open);
+    topbar.classList.toggle("open", open);
+    topbar.setAttribute("aria-expanded", String(open));
+  }
+  function toggleDrawer() { setDrawerOpen(!drawer.classList.contains("open")); }
+  topbar.addEventListener("click", toggleDrawer);
+  topbar.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleDrawer(); }
+  });
+  nameChip.addEventListener("click", () => {
+    if (!userName) { openNameModal(); return; }
+    setDrawerOpen(true);
+    nameInp.focus();
+    nameInp.select();
+  });
+
+  function setConnected(ok) {
+    if (ok) {
+      failStreak = 0;
+      connBanner.classList.remove("show");
+    } else {
+      failStreak++;
+      if (failStreak >= 3) {
+        const ssid = (deviceName === "ECHO" || deviceName === "DELTA")
+          ? deviceName + "-LINK" : "the handheld's Wi-Fi";
+        connBanner.textContent = "Lost contact with " + deviceName + " \u2014 check you're on " + ssid;
+        connBanner.classList.add("show");
+      }
+    }
+  }
+
+  function showSendError(msg) {
+    if (!msg) {
+      sendErrEl.classList.remove("show");
+      sendErrEl.textContent = "";
+    } else {
+      sendErrEl.textContent = msg;
+      sendErrEl.classList.add("show");
+    }
+  }
+
+  function fmtTime(epoch) {
+    if (!epoch || epoch <= 0) return "--:--";
+    const d = new Date(epoch * 1000);
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return hh + ":" + mm;
+  }
+
+  function fmtUptime(s) {
+    if (s == null) return "--";
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return h > 0 ? (h + "h " + m + "m") : (m + "m " + (s % 60) + "s");
+  }
+
+  function nearBottom() {
+    return (msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight) < 80;
+  }
+
+  function trimDom() {
+    while (order.length > MAX_DOM) {
+      const oldId = order.shift();
+      const rec = shown.get(oldId);
+      if (rec) {
+        rec.row.remove();
+        shown.delete(oldId);
+      }
+    }
+  }
+
+  // Safely parse optional leading "[Name] " prefix (strict textContent only)
+  function parseMsgPrefix(raw) {
+    const s = typeof raw === "string" ? raw : "";
+    const match = PREFIX_RE.exec(s);
+    if (match) return { nick: match[1], body: match[2] };
+    return { nick: "", body: s };
+  }
+
+  function formatSenderLabel(m, nick) {
+    const unit = m.from || (m.dir === "out" ? deviceName : "");
+    if (m.dir === "out") {
+      return nick ? (unit + " \u00B7 " + nick) : "";
+    }
+    if (unit && nick) return unit + " \u00B7 " + nick;
+    return unit || nick;
+  }
+
+  function renderStatusInto(rec, m) {
+    rec.timeEl.textContent = fmtTime(m.time);
+    rec.stEl.className = "st " + (m.status || "");
+    if (m.dir === "out") {
+      if (m.status === "sending")        rec.stEl.textContent = "\u2026 sending";
+      else if (m.status === "delivered") rec.stEl.textContent = "\u2713 delivered";
+      else if (m.status === "failed")    rec.stEl.textContent = "! failed";
+      else                               rec.stEl.textContent = "";
+      rec.retryBtn.style.display = (m.status === "failed") ? "inline-block" : "none";
+    } else {
+      rec.stEl.textContent = "";
+      rec.retryBtn.style.display = "none";
+    }
+  }
+
+  function applyContent(rec, m) {
+    const parsed = parseMsgPrefix(typeof m.text === "string" ? m.text : rec.rawPayload);
+    if (typeof m.text === "string") rec.rawPayload = m.text;
+    rec.textEl.textContent = parsed.body;     // strict textContent (XSS-safe)
+    const lbl = formatSenderLabel(m, parsed.nick);
+    rec.senderEl.textContent = lbl;           // strict textContent (XSS-safe)
+    rec.senderEl.style.display = lbl ? "block" : "none";
+  }
+
+  function upsertMessage(m) {
+    emptyHint.style.display = "none";
+    const existing = shown.get(m.id);
+    if (existing) {
+      applyContent(existing, m);
+      renderStatusInto(existing, m);
+      return false;
+    }
+
+    const row = document.createElement("div");
+    row.className = "row " + (m.dir === "out" ? "out" : "in");
+
+    const senderEl = document.createElement("div");
+    senderEl.className = "sender";
+    row.appendChild(senderEl);
+
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    row.appendChild(bubble);
+
+    const meta = document.createElement("div");
+    meta.className = "meta";
+
+    const timeEl = document.createElement("span");
+    const stEl   = document.createElement("span");
+    const retryBtn = document.createElement("button");
+    retryBtn.type = "button";
+    retryBtn.className = "retry-btn";
+    retryBtn.textContent = "Send again";
+    retryBtn.style.display = "none";
+
+    const rec = { row, senderEl, textEl: bubble, timeEl, stEl, retryBtn, rawPayload: m.text || "" };
+    // Retrying sends the already-formatted payload without double-prepending [Name]
+    retryBtn.addEventListener("click", () => { postPayload(rec.rawPayload, false); });
+
+    meta.appendChild(timeEl);
+    meta.appendChild(stEl);
+    meta.appendChild(retryBtn);
+    row.appendChild(meta);
+
+    applyContent(rec, m);
+    renderStatusInto(rec, m);
+    msgsEl.appendChild(row);
+    shown.set(m.id, rec);
+    order.push(m.id);
+    trimDom();
+    return true;
+  }
+
+  // Live UTF-8 byte counter (160 - prefixBytes) and auto-resize
+  function updateCounter() {
+    const budget = maxMessageBytes();
+    const used   = encoder.encode(txtEl.value).length;
+    const left   = budget - used;
+    byteCntEl.className = "";
+    if (left < 0) {
+      byteCntEl.textContent = Math.abs(left) + " bytes over limit";
+      byteCntEl.className = "over";
+    } else {
+      byteCntEl.textContent = left + " bytes left";
+      if (left <= 10) byteCntEl.className = "over";
+      else if (left <= 30) byteCntEl.className = "warn";
+    }
+    txtEl.style.height = "auto";
+    txtEl.style.height = Math.min(txtEl.scrollHeight, 110) + "px";
+  }
+
+  txtEl.addEventListener("input", () => { updateCounter(); showSendError(""); });
+  txtEl.addEventListener("paste", () => showSendError(""));
+
+  function errorReason(code) {
+    switch (code) {
+      case "empty":    return "Message is empty.";
+      case "too_long": return "Message exceeds 160-byte UTF-8 limit.";
+      case "busy":     return "Radio queue is busy \u2014 please try again.";
+      case "bad_json": return "Invalid request format.";
+      default:         return "Send failed (" + (code || "error") + ").";
+    }
+  }
+
+  async function postPayload(payload, clearInput) {
+    if (sending) return;
+    const totalBytes = encoder.encode(payload).length;
+    if (totalBytes > MAX_BYTES) {
+      showSendError("Message is " + totalBytes + " bytes (max " + MAX_BYTES + ").");
+      return;
+    }
+
+    sending = true;
+    sendBtn.disabled = true;
+    showSendError("");
+
+    try {
+      const r = await fetch("/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: payload })
+      });
+      const data = await r.json().catch(() => ({}));
+      setConnected(true);
+      if (!r.ok) {
+        showSendError(errorReason(data.error));
+        return;
+      }
+      const stick = nearBottom();
+      upsertMessage({
+        id: data.id,
+        dir: "out",
+        from: deviceName,
+        time: Math.floor(Date.now() / 1000),
+        status: data.status || "sending",
+        text: payload
+      });
+      if (stick) msgsEl.scrollTop = msgsEl.scrollHeight;
+      if (clearInput) {
+        txtEl.value = "";
+        updateCounter();
+      }
+    } catch (_) {
+      setConnected(false);
+      showSendError("Could not reach handheld \u2014 message kept in box.");
+    } finally {
+      sending = false;
+      sendBtn.disabled = false;
+    }
+  }
+
+  function sendComposer() {
+    if (!isValidName(userName)) {
+      openNameModal();
+      return;
+    }
+    const raw = txtEl.value;
+    if (!raw || !raw.trim()) {
+      showSendError("Message is empty.");
+      return;
+    }
+    const payload = activePrefix() + raw;
+    postPayload(payload, true);
+  }
+
+  sendBtn.addEventListener("click", sendComposer);
+  txtEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendComposer();
+    } else if (e.key.length === 1 || e.key === "Backspace") {
+      showSendError("");
+    }
+  });
+
+  // Sync device clock
+  async function syncTime() {
+    try {
+      const r = await fetch("/time", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ epoch: Math.floor(Date.now() / 1000) })
+      });
+      if (r.ok) setConnected(true);
+    } catch (_) {
+      setConnected(false);
+    }
+  }
+
+  // Poll /messages?since=<rev> every 1.5 s
+  async function pollMessages() {
+    if (msgBusy) return;
+    msgBusy = true;
+    try {
+      const r = await fetch("/messages?since=" + lastRev, { cache: "no-store" });
+      if (!r.ok) throw new Error("http");
+      const data = await r.json();
+      const stick = nearBottom();
+      let added = false;
+      if (Array.isArray(data.messages)) {
+        for (const m of data.messages) {
+          if (upsertMessage(m)) added = true;
+        }
+      }
+      if (typeof data.last_rev === "number" && data.last_rev > lastRev) {
+        lastRev = data.last_rev;
+      }
+      if (added && stick) msgsEl.scrollTop = msgsEl.scrollHeight;
+      setConnected(true);
+    } catch (_) {
+      setConnected(false);
+    } finally {
+      msgBusy = false;
+    }
+  }
+
+  function renderStatus(s) {
+    if (s.device) {
+      deviceName = s.device;
+      devNameEl.textContent = s.device;
+      modalSub.textContent = "Joining " + s.device + " \u00B7 off-grid 433 MHz chat";
+      document.title = s.device + " \u2014 TREELINE";
+    }
+    const lk = s.link || {};
+    const up = Boolean(lk.up) || (typeof lk.last_heard_s === "number" && lk.last_heard_s >= 0 && lk.last_heard_s <= 30);
+    linkDot.classList.toggle("up", up);
+    peerLblEl.textContent = s.peer ? ((up ? "\u2194 " : "\u2715 ") + s.peer) : "";
+
+    const b = s.battery || {};
+    battPctEl.textContent = (b.percent == null) ? "--%" : (b.percent + "%");
+    boltEl.classList.toggle("on", Boolean(b.charging));
+    const warnings = Array.isArray(s.warnings) ? s.warnings : [];
+    const errors   = Array.isArray(s.errors) ? s.errors : [];
+    battPill.classList.toggle("low", warnings.includes("battery_low"));
+
+    // Drawer fields ("--" for any null)
+    const vStr = (b.volts == null) ? "--" : (b.volts.toFixed(2) + " V");
+    const pStr = (b.percent == null) ? "--" : (b.percent + "%");
+    $("st-batt").textContent  = pStr + " (" + vStr + ")" + (b.charging ? " \u26A1" : "");
+    $("st-btemp").textContent = "Temp: " + (b.temp_c == null ? "--" : (b.temp_c.toFixed(1) + " \u00B0C"));
+
+    const heard = (lk.last_heard_s == null) ? "never" : (lk.last_heard_s + "s ago");
+    $("st-link").textContent  = (up ? "UP" : "DOWN") + " (" + heard + ")";
+    const ping = (lk.ping_ms == null) ? "--" : (lk.ping_ms + " ms");
+    const loss = (lk.loss_pct == null) ? "--" : (lk.loss_pct + "%");
+    $("st-radio").textContent = "Ping: " + ping + " \u00B7 Loss: " + loss;
+
+    const pHpa = (s.pressure_hpa == null) ? "--" : (s.pressure_hpa.toFixed(1) + " hPa");
+    const trend = s.pressure_trend ? (" (" + s.pressure_trend + ")") : "";
+    $("st-press").textContent = pHpa + trend;
+    $("st-alt").textContent   = "Alt: " + (s.altitude_m == null ? "--" : (s.altitude_m + " m"));
+
+    $("st-chip").textContent  = "Chip: " + (s.chip_temp_c == null ? "--" : (s.chip_temp_c.toFixed(1) + " \u00B0C"));
+    $("st-sys").textContent   = "Up: " + fmtUptime(s.uptime_s) + " \u00B7 Wi-Fi: " + (s.wifi_clients == null ? "--" : s.wifi_clients);
+    $("st-txrx").textContent  = "TX " + (lk.tx || 0) + " / RX " + (lk.rx || 0);
+
+    // Warnings & sensor error pills (strict textContent)
+    const badgesEl = $("st-badges");
+    badgesEl.textContent = "";
+    const warnLabels = {
+      battery_low: "LOW BATTERY",
+      battery_hot: "BATTERY HOT (>45\u00B0C)",
+      storm:       "STORM ALERT"
+    };
+    for (const w of warnings) {
+      const sp = document.createElement("span");
+      sp.className = "badge warn";
+      sp.textContent = "\u26A0 " + (warnLabels[w] || w);
+      badgesEl.appendChild(sp);
+    }
+    for (const er of errors) {
+      const sp = document.createElement("span");
+      sp.className = "badge err";
+      sp.textContent = "ERR: " + er;
+      badgesEl.appendChild(sp);
+    }
+  }
+
+  // Poll /status every 5 s
+  async function pollStatus() {
+    if (statBusy) return;
+    statBusy = true;
+    try {
+      const r = await fetch("/status", { cache: "no-store" });
+      if (!r.ok) throw new Error("http");
+      const s = await r.json();
+      renderStatus(s);
+      setConnected(true);
+    } catch (_) {
+      setConnected(false);
+    } finally {
+      statBusy = false;
+    }
+  }
+
+  // Resume cleanly after phone screen sleep / wake
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      syncTime();
+      pollMessages();
+      pollStatus();
+    }
+  });
+
+  loadName();
+  syncTime().then(() => {
+    pollStatus();
+    pollMessages();
+  });
+  setInterval(pollMessages, 1500);
+  setInterval(pollStatus,   5000);
+})();
+</script>
+</body>
+</html>

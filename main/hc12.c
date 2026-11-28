@@ -141,7 +141,7 @@ void hc12_test(void)
     char resp[200];
     bool found = false;
     int stored = map_load();
-    int first = stored >= 0 ? stored : MAP_PCB;
+    int first = stored >= 0 ? stored : MAP_PCB;        // PCB v3 default: C3 TX=GPIO20, RX=GPIO10
     int found_baud = 9600;
     set_baud(9600);
     for (int k = 0; k < 2 && !found; k++) {

@@ -145,15 +145,6 @@ static float easeInOut(float t)
     t = clamp01(t);
     return t < 0.5f ? 4 * t * t * t : 1 - powf(-2 * t + 2, 3) / 2;
 }
-static float easeBounce(float t)
-{
-    t = clamp01(t);
-    const float n = 7.5625f, d = 2.75f;
-    if (t < 1 / d) return n * t * t;
-    if (t < 2 / d) { t -= 1.5f / d; return n * t * t + 0.75f; }
-    if (t < 2.5f / d) { t -= 2.25f / d; return n * t * t + 0.9375f; }
-    t -= 2.625f / d; return n * t * t + 0.984375f;
-}
 static const char GLITCH[] = "#$%&*+=<>/\\|01?@~";
 static float hashf(float a, float b)
 {
@@ -382,8 +373,6 @@ static void bolt(float x, float y, int v)
     for (int j = 0; j < 7; j++) for (int i = 0; i < 5; i++) if (BOLT[j][i] == 'X') pset(x + i, y + j, v);
 }
 static float chgT = NAN;
-static float pingRxT = NAN;          // a ping from the peer was answered (toast like chgToast)
-static char pingRxFrom[8];
 static void statusBar(float dotPos)
 {
     float ex = T4(S.me, 0, 0) + 1;
@@ -440,9 +429,13 @@ static void pHome(float pt)
     if (S.wifiDev < 0) snprintf(l[3], 32, "WIFI off");
     else snprintf(l[3], 32, "WIFI %d phones", S.wifiDev);
     snprintf(l[4], 32, "MSGS %d new", S.unread);
-    if (S.charging) snprintf(l[5], 32, "BATT charging");
-    else if (S.batt_ok) snprintf(l[5], 32, "BATT %.2fV", S.battV);
-    else snprintf(l[5], 32, "BATT %s", S.usb_power ? "USB power" : "none");
+    if (S.charging) {
+        if (S.batt_temp_ok) snprintf(l[5], 32, "BATT chg %.0f\xb0" "C", S.tBatt);
+        else snprintf(l[5], 32, "BATT chg --");
+    } else if (S.batt_ok) {
+        if (S.batt_temp_ok) snprintf(l[5], 32, "BATT %.2fV %.0f\xb0" "C", S.battV, S.tBatt);
+        else snprintf(l[5], 32, "BATT %.2fV --", S.battV);
+    } else snprintf(l[5], 32, "BATT %s", S.usb_power ? "USB power" : "none");
     T4(typed(l[0], pt * 1.2f), 32, 10);
     for (int i = 1; i < 6; i++) T4(decode(l[i], (pt - 8 - i * 3) / 10, i * 11), 32, 10 + i * 7);
     if (pt > 30) T4(blink(20) ? "$ _" : "$ ", 32, 54);
@@ -493,7 +486,8 @@ static void pSensors(float pt)
     const char *ar[4] = { tr < 0 ? "v" : tr > 0 ? "^" : "-", "-", "^", "-" };
     if (S.press_ok) { snprintf(v[0], 16, "%.1f", S.press); snprintf(v[1], 16, "%d", rnd(S.alt)); snprintf(v[2], 16, "%.1f", S.tAir); }
     else { strcpy(v[0], "---"); strcpy(v[1], "---"); strcpy(v[2], "---"); }
-    snprintf(v[3], 16, "%.1f", S.tCpu);
+    if (S.chip_temp_ok) snprintf(v[3], 16, "%.1f", S.tCpu);
+    else strcpy(v[3], "---");
     for (int i = 0; i < 4; i++) {
         float y = 18 + i * 11;
         T4(decode(lab[i], (pt - i * 3) / 8, i), 20, y + 1);
@@ -651,17 +645,23 @@ static void pSys(float pt)
     if (pt > 22) { float r = rnd(4 * easeOut((pt - 22) / 8)); disc(cx + 14, 16, r, 1); disc(cx + 12, 14, fmaxf(0, r - 1), 0); }
     const int sx[4] = { 3, 8, 30, 35 }, sy[4] = { 13, 20, 26, 9 };
     for (int i = 0; i < 4; i++) if (sinf(T * 0.12f + i * 1.9f) > -0.2f && pt > 26) pset(sx[i], sy[i], 1);
-    char me[8], info[7][32];
+
+    // Compact IDF version suffix (e.g. "ESP-IDF 6.1" -> "6.1")
+    const char *ver = strchr(S.os_ver, ' ');
+    ver = ver ? ver + 1 : S.os_ver;
+
+    char me[8], info[8][32];
     lower(me, S.me);
     snprintf(info[0], 32, "op@%s", me);
-    strcpy(info[1], "--------");
-    snprintf(info[2], 32, "OS   %s", S.os_ver);
-    strcpy(info[3], "CPU  C3 @160MHz");
-    snprintf(info[4], 32, "RAM  %luK free", (unsigned long)(S.heap_free / 1024));
-    snprintf(info[5], 32, "UP   %s", fmtUp(S.uptime));
-    snprintf(info[6], 32, "TEMP %.1f\xb0" "C", S.tCpu);
-    for (int i = 0; i < 7; i++) T4(decode(info[i], (pt - 6 - i * 3) / 10, i + 40), 40, 9 + i * 7);
-    if (pt > 34) for (int i = 0; i < 6; i++) for (int y = 0; y < 5; y++) for (int x = 0; x < 6; x++) if (((x + y) % (i + 1)) == 0) pset(40 + i * 8 + x, 58 + y, 1);
+    snprintf(info[1], 32, "SYS  C3 IDF%s", ver);
+    snprintf(info[2], 32, "RAM  %luK free", (unsigned long)(S.heap_free / 1024));
+    snprintf(info[3], 32, "UP   %s", fmtUp(S.uptime));
+    if (S.chip_temp_ok) snprintf(info[4], 32, "TEMP %.1f\xb0" "C", S.tCpu);
+    else strcpy(info[4], "TEMP --");
+    snprintf(info[5], 32, "AP   %s", S.wifi_ssid);
+    snprintf(info[6], 32, "PASS %s", S.wifi_pass);
+    snprintf(info[7], 32, "IP   %s", S.wifi_ip);
+    for (int i = 0; i < 8; i++) T4(decode(info[i], (pt - 5 - i * 2.5f) / 10, i + 40), 40, 9 + i * 7);
 }
 static void (*const DRAW[NPAGES])(float) = { pHome, pInbox, pSensors, pWeather, pLink, pSys };
 
@@ -742,37 +742,160 @@ static void bootScreen(float bt)
     }
 }
 
+// Continuous pine-tree ridge silhouette across the bottom ~14 px + starry night sky
+static void dispatchSkyAndRidge(float t)
+{
+    // Subtle twinkling pixel stars in upper sky
+    static const int8_t stars[10][2] = {
+        { 7, 6 }, { 19, 14 }, { 31, 5 }, { 45, 11 }, { 59, 4 },
+        { 74, 9 }, { 88, 5 }, { 99, 15 }, { 14, 24 }, { 105, 25 },
+    };
+    for (int i = 0; i < 10; i++) {
+        float tw_ = sinf(t * 0.18f + i * 1.9f);
+        int sx = stars[i][0], sy = stars[i][1];
+        if (tw_ > 0.82f) { pset(sx, sy, 1); pset(sx - 1, sy, 1); pset(sx + 1, sy, 1); pset(sx, sy - 1, 1); pset(sx, sy + 1, 1); }
+        else if (tw_ > -0.25f) pset(sx, sy, 1);
+    }
+    // Crescent moon in upper right sky
+    disc(115, 9, 5, 1);
+    disc(113, 7, 4, 0);
+
+    // Continuous treeline ridge along the bottom ~14 pixels (y = 48..63)
+    static const int8_t pines[13][2] = {
+        { 4, 12 }, { 13, 15 }, { 23, 11 }, { 33, 14 }, { 44, 10 },
+        { 54, 13 }, { 64, 15 }, { 74, 12 }, { 84, 14 }, { 94, 11 },
+        { 104, 15 }, { 114, 12 }, { 123, 13 },
+    };
+    fill(0, 61, W, 3, 1);
+    for (int i = 0; i < 13; i++) {
+        float px = pines[i][0];
+        int h = pines[i][1];
+        int top = 61 - h;
+        for (int y = 0; y < h; y++) {
+            float half = (y + 1) * 0.44f;
+            hl(px - half, px + half, top + y, 1);
+        }
+    }
+}
+
+// Crisp pixel-art pine seal centered at (cx, cy)
+static void pineSeal(float cx, float cy)
+{
+    fill(cx - 3, cy - 3, 7, 7, 0);
+    pset(cx, cy - 2, 1);
+    hl(cx - 1, cx + 1, cy - 1, 1);
+    hl(cx - 2, cx + 2, cy, 1);
+    hl(cx - 1, cx + 1, cy + 1, 1);
+    pset(cx, cy + 2, 1);
+}
+
 static void msgOverlay(void)
 {
     float t = T - overlay.t0; clearBuf();
-    if (t < 34 && !overlay.skip) {
+    // Phase 1 (~1.0 s): pine antenna radiating radio waves toward INCOMING
+    if (t < 30 && !overlay.skip) {
         ripple(t, 13, 28, 0, W);
         fill(4, 25, 19, 23, 0); text(" Y ", 6, 26, F57, 1, 1); text("/|\\", 6, 33, F57, 1, 1); text("/ \\", 6, 40, F57, 1, 1);
-        const char *s1 = decode("INCOMING", t / 14, 5); fill(42, 20, tw(s1, F610, 1) + 4, 12, 0); text(s1, 44, 21, F610, 1, 1);
+        const char *s1 = decode("INCOMING", t / 13, 5); fill(42, 20, tw(s1, F610, 1) + 4, 12, 0); text(s1, 44, 21, F610, 1, 1);
         char f[16]; snprintf(f, sizeof(f), "<<< %s", overlay.m.from);
-        const char *s2 = typed(f, (t - 12) * 0.8f);
+        const char *s2 = typed(f, (t - 10) * 0.9f);
         if (*s2) { fill(42, 34, tw(s2, F57, 1) + 4, 9, 0); text(s2, 44, 35, F57, 1, 1); }
         return;
     }
-    float t2 = overlay.skip ? 999 : t - 34;
-    if (t2 < 46) {
-        static const char *env[5] = { " ________ ", "|\\      /|", "| \\    / |", "|  \\__/  |", "|________|" };
-        static const char *opn[5] = { " __/\\__   ", "|  /  \\  |", "| /    \\ |", "|/      \\|", "|________|" };
-        float yy = rnd(lerp(-32, 18, easeBounce(t2 / 22)));
-        const char **art = t2 > 28 ? opn : env;
-        if (t2 > 28) {
-            float ly = rnd(lerp(yy + 6, yy - 16, easeOut((t2 - 28) / 14)));
-            fill(48, ly, 32, 18, 0); rect(48, ly, 32, 18, 1);
-            for (int k = 0; k < 3; k++) hl(52, 75 - k * 6, ly + 4 + k * 4, 1);
+
+    // Phase 2 (~1.5 s): Treeline Dispatch — envelope glides over pine ridge, settles, flips open
+    float t2 = overlay.skip ? 999 : t - 30;
+    if (t2 < 45) {
+        dispatchSkyAndRidge(t2);
+
+        const float ew = 30, eh = 18;
+        const float x0 = -18, y0 = 36, x1 = 49, y1 = 21;
+        float p = easeOut(clamp01(t2 / 20.0f));
+        float ex = lerp(x0, x1, p);
+        float ey = lerp(y0, y1, p) - sinf(p * (float)M_PI) * 11.0f;
+        if (t2 >= 20 && t2 < 27) ey += sinf((t2 - 20) * 0.9f) * 0.9f;
+
+        // Dotted radio-spark trail while gliding across the treetops
+        if (t2 < 24) {
+            for (int k = 1; k <= 7; k++) {
+                float pk = p - k * 0.068f;
+                if (pk <= 0.02f) continue;
+                float tx = lerp(x0, x1, pk) + 2;
+                float ty = lerp(y0, y1, pk) - sinf(pk * (float)M_PI) * 11.0f + eh * 0.5f;
+                if (k <= 3 && ((int)floorf(t2 + k) % 2 == 0)) {
+                    pset(tx, ty, 1); pset(tx - 1, ty, 1); pset(tx + 1, ty, 1);
+                    pset(tx, ty - 1, 1); pset(tx, ty + 1, 1);
+                } else {
+                    pset(tx, ty, 1);
+                }
+            }
         }
-        for (int i = 0; i < 5; i++) T4(art[i], 44, yy + i * 6);
-        if (t2 > 22 && t2 < 34) for (int k = 0; k < 5; k++) {
-            float a = k * 1.256f + t2 * 0.2f, r = (t2 - 22) * 2.2f;
-            T4("+", 62 + cosf(a) * r * 1.6f, yy + 12 + sinf(a) * r);
+
+        float rx = rnd(ex), ry = rnd(ey);
+        if (t2 < 27) {
+            // Closed dispatch envelope with pine-tree seal on the flap
+            fill(rx, ry, ew, eh, 0);
+            rect(rx, ry, ew, eh, 1);
+            line(rx + 1, ry + eh - 2, rx + 10, ry + 10, 1);
+            line(rx + ew - 2, ry + eh - 2, rx + ew - 11, ry + 10, 1);
+            line(rx, ry, rx + ew / 2, ry + 10, 1);
+            line(rx + ew - 1, ry, rx + ew / 2, ry + 10, 1);
+            pineSeal(rx + ew / 2, ry + 9);
+        } else {
+            // Flap flips open, letter card rises out, pixel sparkles burst around canopy
+            float fp = easeOut(clamp01((t2 - 27) / 8.0f));
+            float tipY = lerp(ry + 10, ry - 9, fp);
+
+            // Back open flap behind rising letter
+            if (fp > 0.45f) {
+                line(rx, ry, rx + ew / 2, tipY, 1);
+                line(rx + ew - 1, ry, rx + ew / 2, tipY, 1);
+            }
+
+            // Letter card emerging from inside the envelope
+            if (t2 >= 30) {
+                float lp = easeOut(clamp01((t2 - 30) / 11.0f));
+                float ly = rnd(lerp(ry + 5, ry - 10, lp));
+                fill(rx + 4, ly, ew - 8, 14, 0);
+                rect(rx + 4, ly, ew - 8, 14, 1);
+                hl(rx + 7, rx + ew - 8, ly + 3, 1);
+                hl(rx + 7, rx + ew - 10, ly + 6, 1);
+                hl(rx + 7, rx + ew - 13, ly + 9, 1);
+            }
+
+            // Envelope front pocket masks lower half of rising letter
+            fill(rx, ry + 1, ew, eh - 1, 0);
+            rect(rx, ry, ew, eh, 1);
+            line(rx + 1, ry + eh - 2, rx + 11, ry + 9, 1);
+            line(rx + ew - 2, ry + eh - 2, rx + ew - 12, ry + 9, 1);
+            hl(rx + 11, rx + ew - 12, ry + 9, 1);
+            if (fp <= 0.45f) {
+                line(rx, ry, rx + ew / 2, tipY, 1);
+                line(rx + ew - 1, ry, rx + ew / 2, tipY, 1);
+            }
+
+            // Crisp pixel-sparkle burst on flap open
+            if (t2 < 42) {
+                float sp = easeOut(clamp01((t2 - 27) / 14.0f));
+                float r = 5.0f + sp * 17.0f;
+                for (int k = 0; k < 8; k++) {
+                    float a = k * (float)M_PI * 0.25f + 0.22f;
+                    float sx = rx + ew / 2 + cosf(a) * r * 1.35f;
+                    float sy = ry + 3 + sinf(a) * r * 0.85f;
+                    if (sy > 46) continue;
+                    pset(sx, sy, 1);
+                    if ((k + (int)floorf(t2 / 2)) % 2 == 0) {
+                        pset(sx - 1, sy, 1); pset(sx + 1, sy, 1);
+                        pset(sx, sy - 1, 1); pset(sx, sy + 1, 1);
+                    }
+                }
+            }
         }
         return;
     }
-    float t3 = overlay.skip ? (T - overlay.skipT) + 999 : t2 - 46;
+
+    // Phase 3: message-view card
+    float t3 = overlay.skip ? (T - overlay.skipT) + 999 : t2 - 45;
     char hb[24]; snprintf(hb, sizeof(hb), " MSG %s", overlay.m.from);
     invBar(hb, 0, "just now");
     // word wrap at 25 characters
@@ -807,12 +930,24 @@ static void warnOverlay(void)
     if (overlay.warn == 1) {
         if (blink(10)) text("!", 14, 17, F610, 1, 2);
         T4("USB-C + SWITCH ON", 30, 16); T4("turn the switch OFF", 30, 26); T4("before plugging", 30, 33); T4("the ESP into USB", 30, 40);
+    } else if (overlay.warn == 2) {
+        if (blink(10)) text("!", 14, 17, F610, 1, 2);
+        char b[24];
+        if (S.batt_temp_ok) snprintf(b, sizeof(b), "TEMP %.1f\xb0" "C (>45)", S.tBatt);
+        else strcpy(b, "OVER 45\xb0" "C");
+        text("BATTERY HOT", 30, 16, F57, 1, 1); T4(b, 30, 27); T4("let unit cool", 30, 35);
+    } else if (overlay.warn == 3) {
+        if (blink(10)) text("!", 14, 17, F610, 1, 2);
+        text("STORM ALERT", 30, 16, F57, 1, 1); T4("rapid pressure drop", 30, 27); T4("check weather", 30, 35);
+    } else if (overlay.warn == 4) {
+        if (blink(10)) text("!", 14, 17, F610, 1, 2);
+        text("SHUTTING DOWN", 30, 16, F57, 1, 1); T4("battery < 3.5V", 30, 27); T4("press btn to wake", 30, 35);
     } else {
         text("[", 14, 22, F610, 1, 1); rect(20, 25, 16, 9, 1); fill(36, 27, 2, 5, 1); if (blink(10)) fill(22, 27, 2, 5, 1);
         char b[16]; snprintf(b, sizeof(b), "%d%% left", S.batt);
         text("LOW BATTERY", 46, 17, F57, 1, 1); T4(b, 46, 27); T4("charge via", 46, 35); T4("USB-C", 46, 42);
     }
-    if (blink(24)) textC("press = ok", 64, 48, F46, 1, 1);
+    if (overlay.warn != 4 && blink(24)) textC("press = ok", 64, 48, F46, 1, 1);
 }
 
 static void chgToast(float t)
@@ -823,18 +958,6 @@ static void chgToast(float t)
     fill(x - 1, y - 1, w + 2, 15, 0); fill(x, y, w, 13, 1);
     if (S.charging) bolt(x + 5, y + 3, 0);
     else { rect(x + 4, y + 4, 9, 5, 0); fill(x + 13, y + 5, 1, 3, 0); fill(x + 5, y + 5, rnd(7 * S.batt / 100.0f), 3, 0); }
-    text(label, x + 17, y + 3, F57, 0, 1);
-}
-
-// same toast as chgToast: an antenna icon and "PING <peer>"
-static void pingToast(float t)
-{
-    float inY = easeOut(t / 10), outY = t > 60 ? easeInOut((t - 60) / 15) : 0, y = rnd(lerp(-14, 22, inY) - outY * 36);
-    char label[16]; snprintf(label, sizeof(label), "PING %s", pingRxFrom);
-    float w = tw(label, F57, 1) + 22, x = rnd(64 - w / 2);
-    fill(x - 1, y - 1, w + 2, 15, 0); fill(x, y, w, 13, 1);
-    vl(x + 8, y + 5, y + 10, 0); line(x + 5, y + 2, x + 8, y + 5, 0); line(x + 11, y + 2, x + 8, y + 5, 0);
-    if (blink(6)) { pset(x + 4, y + 6, 0); pset(x + 12, y + 6, 0); }
     text(label, x + 17, y + 3, F57, 0, 1);
 }
 
@@ -946,7 +1069,7 @@ static bool anyPressConsumed(void)
     if (overlay.kind == 2) { overlay.kind = 0; startDissolve(); return true; }
     if (overlay.kind == 1) {
         float t = T - overlay.t0;
-        if (!overlay.skip && t < 34 + 46 + 40) { overlay.skip = true; overlay.skipT = T; }
+        if (!overlay.skip && t < 30 + 45 + 40) { overlay.skip = true; overlay.skipT = T; }
         else endOverlay();
         return true;
     }
@@ -999,13 +1122,58 @@ void ui_button(bool down, uint32_t now)
     clickPending = true; clickDeadline = now + 280;
 }
 
+// Convert UTF-8 message text into an ASCII/Latin-1 preview for the 95-byte OLED buffer.
+// Truncates cleanly on UTF-8 character boundaries (never splits a multi-byte sequence).
+static void sanitize_oled_text(char *dst, size_t dst_sz, const char *src)
+{
+    if (dst_sz == 0) return;
+    size_t out = 0;
+    const unsigned char *p = (const unsigned char *)src;
+    bool truncated = false;
+
+    while (*p) {
+        unsigned char c = *p;
+        unsigned char mapped;
+        size_t step = 1;
+
+        if (c < 0x80) {
+            mapped = (c == '\r' || c == '\n' || c == '\t') ? ' ' : (c >= 0x20 && c <= 0x7E ? c : '?');
+        } else if ((c & 0xE0) == 0xC0 && p[1]) {
+            step = 2;
+            mapped = (c == 0xC2 && p[1] == 0xB0) ? 0xB0 : '?';   // preserve degree symbol
+        } else if ((c & 0xF0) == 0xE0 && p[1] && p[2]) {
+            step = 3;
+            mapped = '?';
+        } else if ((c & 0xF8) == 0xF0 && p[1] && p[2] && p[3]) {
+            step = 4;
+            mapped = '?';
+        } else {
+            mapped = '?';
+        }
+
+        if (out + 1 >= dst_sz) {
+            truncated = true;
+            break;
+        }
+        dst[out++] = (char)mapped;
+        p += step;
+    }
+    dst[out] = '\0';
+    if (truncated && dst_sz >= 4) {
+        dst[dst_sz - 4] = '.';
+        dst[dst_sz - 3] = '.';
+        dst[dst_sz - 2] = '.';
+        dst[dst_sz - 1] = '\0';
+    }
+}
+
 // ---------------------------------------------------------------- events from the firmware
 void ui_message(const char *from, const char *txt)
 {
     if (S.nmsgs == UI_MSGS) S.nmsgs--;
     memmove(&S.msgs[1], &S.msgs[0], sizeof(ui_msg_t) * S.nmsgs);
     snprintf(S.msgs[0].from, sizeof(S.msgs[0].from), "%s", from);
-    snprintf(S.msgs[0].text, sizeof(S.msgs[0].text), "%s", txt);
+    sanitize_oled_text(S.msgs[0].text, sizeof(S.msgs[0].text), txt);
     S.msgs[0].rx_up = S.uptime;
     S.nmsgs++; S.unread++;
     if (mode == M_BOOT) return;
@@ -1025,12 +1193,6 @@ void ui_warn(int kind)
     if (mode == M_BOOT) return;
     if (mode == M_OFF) wake(THEN_NONE);
     overlay.kind = 2; overlay.t0 = T; overlay.warn = kind;
-}
-void ui_ping_rx(const char *from)
-{
-    snprintf(pingRxFrom, sizeof(pingRxFrom), "%s", from);
-    pingRxT = T;
-    if (mode == M_OFF) wake(THEN_NONE);
 }
 void ui_ping_result(bool ok, int rtt)
 {
@@ -1080,7 +1242,6 @@ void ui_frame(uint32_t now)
         } else { drawPage(pageIdx, bufA); setTarget(fb); memcpy(fb, bufA, sizeof(fb)); }
         statusBar(dotPos);
         if (!isnan(chgT) && T - chgT < 75) chgToast(T - chgT);
-        if (!isnan(pingRxT) && T - pingRxT < 75) pingToast(T - pingRxT);
         if (overlay.kind == 2) warnOverlay();
     }
     if (holdStart >= 0 && mode != M_BOOT) {
@@ -1106,6 +1267,7 @@ void ui_init(const char *title)
     memset(&S, 0, sizeof(S));
     S.seen = -1; S.ping = -1; S.wifiDev = -1;
     strcpy(S.me, "ECHO"); strcpy(S.peer, "DELTA"); strcpy(S.os_ver, "ESP-IDF");
+    strcpy(S.wifi_ssid, "ECHO-LINK"); strcpy(S.wifi_pass, "treeline"); strcpy(S.wifi_ip, "192.168.4.1");
     (void)BOOT_INTRO_unused;
     // power-on: CRT turn-on into the title screen
     mode = M_BOOT; modeT = 0; crt.on = true; crt.kind = 0; crt.t0 = 0; crt.len = 15; crt.then = THEN_NONE;

@@ -25,4 +25,5 @@ void link_ping(void);
 bool link_ping_poll(int *rtt_ms);
 void link_stats(link_stats_t *st);
 void link_sleep(void);                      // AT+SLEEP for low-battery shutdown
+int64_t link_last_tx_us(void);              // esp_timer time the last radio transmission ends
 bool link_send_bad_crc_test(const char *text);  // demo helper: sends intentionally bad CRC frame

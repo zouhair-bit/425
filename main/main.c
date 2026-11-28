@@ -780,6 +780,8 @@ void app_main(void)
     bool charging = chrg_on(), chg_cand = charging;
     bool warned_low = false, warned_storm = false;
     int  low_shut_cnt = 0;
+    float v_last = v0, v_avg = -1.0f;   // battery: last quiet reading, ~10 s average
+    int   pct_shown = -1, low_s = 0;    // shown %, seconds in a row at <= 10 %
     int  bmp_fail_cnt = 0;
 
     // 1-minute pressure history (last 11 minutes) for rapid storm-drop detection
@@ -857,7 +859,10 @@ void app_main(void)
 
             bool chip_ok = chip_tsens_ready && (temperature_sensor_get_celsius(tsens, &chip) == ESP_OK);
 
-            float v = bat_volts();
+            // The HC-12 TX burst pulls the battery down (and its RF gets into the divider):
+            // read only when the radio has been quiet for 150 ms, else reuse the last reading
+            if (esp_timer_get_time() - link_last_tx_us() > 150000) v_last = bat_volts();
+            float v = v_last;
             if ((now / 1000000) % 10 == 0) { bat_log(v); link_print(); }
             bool lvl = chrg_on();
             link_stats_t st; link_stats(&st);
@@ -895,16 +900,28 @@ void app_main(void)
 
             S->usb_power = v > 4.45f;
             S->batt_ok   = v > BATT_MIN_VALID_V && !S->usb_power;
-            S->battV     = v;
-            S->batt      = S->batt_ok ? bat_percent(v) : 0;
+            // The Li-ion curve is flat mid-range (3.80 V = 40 %, 3.84 V = 50 %), so ADC noise and the
+            // dip while the radio transmits made the % jump. Average over ~10 s, then only move the
+            // shown % by 2+ points, and while discharging only let it rise by 4+.
+            if (S->batt_ok) {
+                v_avg = v_avg < 0 ? v : v_avg + 0.1f * (v - v_avg);
+                int pc = bat_percent(v_avg), d = pc - pct_shown;
+                if (pct_shown < 0 || d <= -2 || d >= (charging ? 2 : 4)) pct_shown = pc;
+            } else { v_avg = -1.0f; pct_shown = -1; }
+            S->battV     = S->batt_ok ? v_avg : v;
+            S->batt      = S->batt_ok ? pct_shown : 0;
 
             // Debounce CHRG over two consecutive 1 s samples
             if (lvl == chg_cand && lvl != charging) { charging = lvl; ui_set_charging(charging); }
             chg_cand = lvl;
 
-            // Warnings
-            S->low = S->batt_ok && !charging && S->batt <= 10;
-            if (S->low && !warned_low) { warned_low = true; ui_warn(0); }
+            // Warnings: low only after 30 s in a row at <= 10 %, so one bad reading cannot raise it
+            low_s  = (S->batt_ok && !charging && S->batt <= 10) ? low_s + 1 : 0;
+            S->low = low_s >= 30;
+            if (S->low && !warned_low) {
+                warned_low = true; ui_warn(0);
+                printf("BATT: low battery warning at %d %% (%.2f V)\n", S->batt, S->battV);
+            }
             if (!S->low && S->batt > 15) warned_low = false;
 
             if (storm_now && !warned_storm) { warned_storm = true; ui_warn(3); }
@@ -948,7 +965,8 @@ void app_main(void)
             snap.warn_storm       = storm_now;
 
             bool trigger_shutdown = false;
-            if (S->batt_ok && !charging && v > BATT_MIN_VALID_V && v < BATT_SHUTDOWN_V) {
+            // uses the averaged quiet-radio voltage, so a TX dip cannot shut the unit down
+            if (S->batt_ok && !charging && v_avg > BATT_MIN_VALID_V && v_avg < BATT_SHUTDOWN_V) {
                 if (++low_shut_cnt >= 3) trigger_shutdown = true;
             } else {
                 low_shut_cnt = 0;
@@ -958,7 +976,7 @@ void app_main(void)
             status_set(&snap);
 
             if (trigger_shutdown) {
-                clean_low_battery_shutdown(v);
+                clean_low_battery_shutdown(v_avg);
             }
         }
         vTaskDelay(pdMS_TO_TICKS(50));

@@ -31,10 +31,25 @@
 #define HC12_UART          UART_NUM_1
 #define HC12_SET_GPIO      6
 
-#define LINK_POWER_CMD     "AT+P4"
-#define LINK_POWER_LABEL   "P4"
 #define LINK_WINDOW        20
 #define LINK_RETRY_US      (10 * 1000000LL)  // re-probe HC-12 every 10 s if absent
+
+// Radio power adapts to the range. The peer reports in every heartbeat how many of our last
+// 20 packets it heard: that is how well we are getting through.
+//   heard >= 19/20 for 20 s       -> one step down (the window has refilled at the new power)
+//   heard <= 16/20                -> one step up (at most every 4 s), no step down for 60 s
+//   peer silent 6 s / not found   -> maximum, to get the link back
+// Steps: P1 -1, P2 +2, P3 +5, P4 +8, P5 +11, P6 +14, P7 +17, P8 +20 dBm.
+// NOTE: the HC-12 remembers the power setting after power-off.
+#define LINK_PWR_MIN        4                // floor: P4 = +8 dBm
+#define LINK_PWR_MAX        8                // +20 dBm. 433 MHz limits are often ~+10 dBm (P4/P5): check yours
+#define LINK_DOWN_HOLD_US   (20 * 1000000LL)
+#define LINK_UP_HOLD_US     (4 * 1000000LL)
+#define LINK_NO_DOWN_US     (60 * 1000000LL)  // after a step up
+#define LINK_LOST_US        (6 * 1000000LL)
+
+// UART at 9600 baud: 10 bits per byte = ~1042 us on air per byte
+#define UART_US_PER_BYTE    1042
 
 #define FRAME_SYNC0        0xAA
 #define FRAME_SYNC1        0x55
@@ -58,6 +73,18 @@ static int64_t           last_try_us;
 static uint32_t          start_attempts;
 static uint8_t           my_mac5;
 static char              my_id[3], peer_id[3] = "--";
+
+// Adaptive TX power
+static const int         pwr_dbm[9] = { 0, -1, 2, 5, 8, 11, 14, 17, 20 };
+static volatile int      pwr = LINK_PWR_MAX;  // start loud: the peer has not been found yet
+static int64_t           pwr_changed_us, pwr_up_us;
+// AT commands and radio traffic share the UART: while at_busy the RX task parks
+// (so it does not eat the module's reply). Senders are held off by uart_tx_lock.
+static volatile bool     at_busy, rx_parked;
+
+// When the last radio transmission ends (esp_timer us), so the battery reading can avoid
+// the TX burst: it sags the battery and the RF gets into the GPIO1 divider.
+static volatile int64_t  last_tx_end_us;
 
 // Heartbeat & link quality stats
 static volatile uint32_t tx_count, rx_count, peer_first_seq, peer_last_seq, bad_lines;
@@ -102,9 +129,23 @@ static void uart_send_locked(const void *data, size_t len)
 {
     if (!uart_tx_lock) return;
     xSemaphoreTake(uart_tx_lock, portMAX_DELAY);
-    if (link_ok) uart_write_bytes(HC12_UART, data, len);
+    if (link_ok) {
+        uart_write_bytes(HC12_UART, data, len);
+        // uart_write_bytes returns once buffered: stamp when the bytes have actually gone out
+        last_tx_end_us = esp_timer_get_time() + (int64_t)len * UART_US_PER_BYTE;
+    }
     xSemaphoreGive(uart_tx_lock);
 }
+
+int64_t link_last_tx_us(void) { return last_tx_end_us; }
+
+// Park the RX task so an AT reply is not swallowed by the frame parser. Call with uart_tx_lock held.
+static void rx_park(void)
+{
+    at_busy = true;
+    for (int i = 0; i < 30 && rx_handle && !rx_parked; i++) vTaskDelay(pdMS_TO_TICKS(10));
+}
+static void rx_unpark(void) { at_busy = false; }
 
 static size_t build_frame(uint8_t *out, uint8_t type, uint8_t src, uint8_t seq,
                           const uint8_t *payload, uint8_t len, uint16_t crc_xor)
@@ -266,6 +307,13 @@ static void rx_task(void *arg)
 
     uint8_t c;
     for (;;) {
+        if (at_busy) {
+            rx_parked = true;
+            st = RX_IDLE; line_len = 0; bin_pos = 0;
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
+        rx_parked = false;
         int got = uart_read_bytes(HC12_UART, &c, 1, pdMS_TO_TICKS(50));
         int64_t now = esp_timer_get_time();
 
@@ -362,6 +410,7 @@ static void rx_task(void *arg)
 static bool probe_and_config_hc12(void)
 {
     xSemaphoreTake(uart_tx_lock, portMAX_DELAY);
+    rx_park();
     char resp[120];
     start_attempts++;
     vTaskDelay(pdMS_TO_TICKS(300));
@@ -372,7 +421,10 @@ static bool probe_and_config_hc12(void)
                         attempt + 1, resp[0] ? ", got: " : "", resp);
     }
     if (ok) {
-        hc12_cmd(LINK_POWER_CMD, resp, sizeof(resp)); printf("LINK %s   -> '%s'\n", LINK_POWER_CMD, resp);
+        char cmd[8];
+        snprintf(cmd, sizeof(cmd), "AT+P%d", pwr);
+        hc12_cmd(cmd, resp, sizeof(resp));            printf("LINK %s   -> '%s'\n", cmd, resp);
+        pwr_changed_us = esp_timer_get_time();
         hc12_cmd("AT+C001", resp, sizeof(resp));      printf("LINK AT+C001 -> '%s'\n", resp);
         hc12_cmd("AT+RX", resp, sizeof(resp));        printf("LINK AT+RX   -> '%s'\n", resp);
     }
@@ -381,15 +433,64 @@ static bool probe_and_config_hc12(void)
     uart_flush_input(HC12_UART);
     last_try_us = esp_timer_get_time();
     link_ok = ok;
+    rx_unpark();
     xSemaphoreGive(uart_tx_lock);
 
     if (!ok) {
         printf("LINK: HC-12 not answering, will retry in 10 s\n");
     } else {
-        printf("LINK: started (after %lu start attempt%s), my id %s, power %s, channel 001\n",
-               (unsigned long)start_attempts, start_attempts == 1 ? "" : "s", my_id, LINK_POWER_LABEL);
+        printf("LINK: started (after %lu start attempt%s), my id %s, power P%d (%+d dBm, adaptive), channel 001\n",
+               (unsigned long)start_attempts, start_attempts == 1 ? "" : "s", my_id, pwr, pwr_dbm[pwr]);
     }
     return ok;
+}
+
+// Switch the HC-12 to power level p (~0.3 s with the radio deaf and all senders held off).
+// Runs in tx_task between messages, never while a chat message is waiting for its ACK.
+static bool set_power(int p)
+{
+    xSemaphoreTake(uart_tx_lock, portMAX_DELAY);
+    rx_park();
+    char cmd[8], resp[48];
+    snprintf(cmd, sizeof(cmd), "AT+P%d", p);
+    gpio_set_level(HC12_SET_GPIO, 0);
+    vTaskDelay(pdMS_TO_TICKS(80));                  // datasheet: >40 ms after SET goes low
+    hc12_cmd(cmd, resp, sizeof(resp));
+    bool ok = strstr(resp, "OK+P") != NULL;
+    gpio_set_level(HC12_SET_GPIO, 1);
+    vTaskDelay(pdMS_TO_TICKS(100));                 // back in radio mode after ~80 ms
+    uart_flush_input(HC12_UART);
+    rx_unpark();
+    xSemaphoreGive(uart_tx_lock);
+    if (!ok) printf("LINK: power change to P%d failed ('%s'), will retry\n", p, resp);
+    return ok;
+}
+
+static void adapt_power(void)
+{
+    int64_t now = esp_timer_get_time();
+    int target = pwr;
+    const char *why = NULL;
+    if (!peer_seen || now - last_rx_us > LINK_LOST_US) {
+        target = LINK_PWR_MAX; why = peer_seen ? "peer lost" : "looking for peer";
+    } else if (tx_count >= LINK_WINDOW) {           // the peer's report covers a full window
+        if (peer_got_recent <= 16 && now - pwr_changed_us > LINK_UP_HOLD_US) {
+            target = pwr + 1; why = "weak";
+        } else if (peer_got_recent >= 19 && now - pwr_changed_us > LINK_DOWN_HOLD_US &&
+                   now - pwr_up_us > LINK_NO_DOWN_US) {
+            target = pwr - 1; why = "strong";
+        }
+    }
+    if (target > LINK_PWR_MAX) target = LINK_PWR_MAX;
+    if (target < LINK_PWR_MIN) target = LINK_PWR_MIN;
+    if (target == pwr) return;
+    int old = pwr;
+    if (!set_power(target)) { pwr_changed_us = now; return; }   // try again after the hold time
+    pwr = target;
+    pwr_changed_us = esp_timer_get_time();
+    if (target > old) pwr_up_us = pwr_changed_us;
+    printf("LINK: power P%d -> P%d (%+d dBm): %s, peer heard %lu/%d\n", old, pwr, pwr_dbm[pwr], why,
+           (unsigned long)peer_got_recent, LINK_WINDOW);
 }
 
 static void tx_task(void *arg)
@@ -406,6 +507,7 @@ static void tx_task(void *arg)
                     xTaskCreate(rx_task, "hc12_rx", 4096, NULL, 6, &rx_handle);
                 }
             }
+            if (link_ok) adapt_power();   // between messages only, never during an ACK wait
             continue;
         }
 
@@ -526,9 +628,9 @@ void link_print(void)
     recent_in(&got, &of);
     uint32_t out_of = tx_count < LINK_WINDOW ? tx_count : LINK_WINDOW;
     float age = peer_seen ? (esp_timer_get_time() - last_rx_us) / 1e6f : -1;
-    printf("LINK me=%s %s | IN from %s: last20 %lu/%lu, total rx=%lu loss=%.1f%%, last %.1fs ago"
+    printf("LINK me=%s P%d %+ddBm | IN from %s: last20 %lu/%lu, total rx=%lu loss=%.1f%%, last %.1fs ago"
            " | OUT %s heard last20 %lu/%lu, total %lu of my %lu | bad=%lu\n",
-           my_id, LINK_POWER_LABEL, peer_id, (unsigned long)got, (unsigned long)of,
+           my_id, pwr, pwr_dbm[pwr], peer_id, (unsigned long)got, (unsigned long)of,
            (unsigned long)rx_count, loss_pct(), age,
            peer_id, (unsigned long)peer_got_recent, (unsigned long)out_of,
            (unsigned long)peer_got_ours, (unsigned long)tx_count, (unsigned long)bad_lines);
@@ -569,6 +671,7 @@ void link_sleep(void)
 {
     if (!uart_tx_lock || !link_ok) return;
     xSemaphoreTake(uart_tx_lock, portMAX_DELAY);
+    rx_park();                                      // else the RX task eats the AT reply
     link_ok = false;
     char resp[32];
     gpio_set_level(HC12_SET_GPIO, 0);
@@ -577,7 +680,7 @@ void link_sleep(void)
     printf("LINK: AT+SLEEP -> '%s'\n", resp);
     gpio_set_level(HC12_SET_GPIO, 1);
     vTaskDelay(pdMS_TO_TICKS(50));
-    xSemaphoreGive(uart_tx_lock);
+    xSemaphoreGive(uart_tx_lock);                   // RX stays parked: the device is going to sleep
 }
 
 bool link_send_bad_crc_test(const char *text)
